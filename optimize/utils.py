@@ -26,20 +26,17 @@ def calculate_param_changes(initial_params, final_params):
         print(f"Link {i+1}: theta_offset={param_changes[i*4]:.2f}%, d={param_changes[i*4+1]:.2f}%, "
               f"alpha={param_changes[i*4+2]:.2f}%, a={param_changes[i*4+3]:.2f}%")
 
-def setup_bounds(initial_dh_params):
-    """设置参数搜索范围"""
+
+def setup_bounds(initial_params):
     bounds = []
-    for param in initial_dh_params:
-        # 角度参数(theta_offset和alpha)的边界范围大一些
+    for param in initial_params:
         if param == 0:
-            bounds.append((-5, 5))
+            bounds.append((-10, 10))
         else:
-            # 角度参数
-            if abs(param) >= 90:
-                bounds.append((param * 0.9, param * 1.1))
-            # 长度参数
-            else:
-                bounds.append((param * 0.9, param * 1.1))
+            # 计算放宽边界时先取小值和大值
+            lower = min(param * 0.8, param * 1.2)
+            upper = max(param * 0.8, param * 1.2)
+            bounds.append((lower, upper))
     return bounds
 
 def rmse(errors):
