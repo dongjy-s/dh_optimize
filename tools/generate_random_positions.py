@@ -1,6 +1,6 @@
 import numpy as np
 import random
-from forward_kinematics import RokaeRobot
+from optimize.forward_kinematics import RokaeRobot
 
 def generate_random_joints():
     """
