@@ -1,9 +1,91 @@
 import numpy as np
 import pandas as pd
 import random
+import os
 from scipy.optimize import least_squares
 from forward_kinematics import RokaeRobot
 import matplotlib.pyplot as plt
+
+# 创建目录
+def ensure_dir(directory):
+    """确保目录存在，如果不存在则创建"""
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+        print(f"创建目录: {directory}")
+
+# 初始化目录
+ensure_dir('graph')  # 图像保存目录
+ensure_dir('result') # 结果保存目录
+
+def save_formatted_dh_params(filename, params, initial_params=None):
+    """
+    将优化后的DH参数保存为易读的格式
+    
+    Args:
+        filename: 输出文件名
+        params: DH参数列表 [theta_offset_1, d_1, alpha_1, a_1, ..., theta_offset_6, d_6, alpha_6, a_6]
+        initial_params: 可选，初始DH参数，用于对比显示
+    """
+    with open(filename, 'w', encoding='utf-8') as f:
+        f.write("# 优化后的DH参数\n")
+        f.write("# 格式: [theta_offset, d, alpha, a] (单位: 度/mm)\n\n")
+        
+        # 为每个连杆写入参数
+        for i in range(6):
+            start_idx = i * 4
+            theta_offset = params[start_idx]
+            d = params[start_idx + 1]
+            alpha = params[start_idx + 2]
+            a = params[start_idx + 3]
+            
+            f.write(f"# 连杆 {i+1}\n")
+            f.write(f"theta_offset = {theta_offset:.6f} 度\n")
+            f.write(f"d           = {d:.6f} mm\n")
+            f.write(f"alpha       = {alpha:.6f} 度\n")
+            f.write(f"a           = {a:.6f} mm\n")
+            
+            # 如果提供了初始参数，显示变化量和百分比
+            if initial_params is not None:
+                init_theta = initial_params[start_idx]
+                init_d = initial_params[start_idx + 1]
+                init_alpha = initial_params[start_idx + 2]
+                init_a = initial_params[start_idx + 3]
+                
+                # 计算变化
+                theta_change = theta_offset - init_theta
+                d_change = d - init_d
+                alpha_change = alpha - init_alpha
+                a_change = a - init_a
+                
+                # 计算百分比变化
+                theta_pct = (theta_change / init_theta * 100) if init_theta != 0 else float('inf')
+                d_pct = (d_change / init_d * 100) if init_d != 0 else float('inf')
+                alpha_pct = (alpha_change / init_alpha * 100) if init_alpha != 0 else float('inf')
+                a_pct = (a_change / init_a * 100) if init_a != 0 else float('inf')
+                
+                # 写入变化量
+                f.write(f"# 变化量:\n")
+                f.write(f"# theta_offset: {theta_change:.6f} 度 ({theta_pct:.2f}% 变化)\n")
+                f.write(f"# d           : {d_change:.6f} mm ({d_pct:.2f}% 变化)\n") 
+                f.write(f"# alpha       : {alpha_change:.6f} 度 ({alpha_pct:.2f}% 变化)\n")
+                f.write(f"# a           : {a_change:.6f} mm ({a_pct:.2f}% 变化)\n")
+            
+            f.write("\n")
+        
+        # 添加表格形式的摘要
+        f.write("# 参数摘要表\n")
+        f.write("# -----------------------------------------------------------------------------\n")
+        f.write("# 连杆 | theta_offset(度) |    d(mm)    |  alpha(度)   |    a(mm)     |\n")
+        f.write("# -----------------------------------------------------------------------------\n")
+        for i in range(6):
+            start_idx = i * 4
+            f.write(f"#  {i+1}   | {params[start_idx]:15.6f} | {params[start_idx+1]:12.6f} | {params[start_idx+2]:13.6f} | {params[start_idx+3]:12.6f} |\n")
+        f.write("# -----------------------------------------------------------------------------\n\n")
+        
+        # 最后也保存为原始格式，便于程序读取
+        f.write("# 原始格式数据（每行一个参数值）:\n")
+        for param in params:
+            f.write(f"{param:.6f}\n")
 
 def load_data(filename):
     """
@@ -281,12 +363,13 @@ def main():
     plt.legend()
     plt.grid(True)
     plt.yscale('log')
-    plt.savefig('optimization_convergence.png')
+    plt.savefig('graph/optimization_convergence.png')
     plt.show()
     
-    # 保存优化后的参数
-    np.savetxt('optimized_dh_params.txt', final_params, fmt='%.6f')
-    print("优化后的参数已保存到 optimized_dh_params.txt")
+    # 保存优化后的参数 - 使用格式化的方式
+    result_file = 'result/optimized_dh_params.txt'
+    save_formatted_dh_params(result_file, final_params, initial_dh_params)
+    print(f"优化后的参数已保存到 {result_file}")
     
     # 验证优化效果
     validate_optimization(joint_angles, measured_positions, initial_dh_params, final_params)
@@ -323,8 +406,28 @@ def validate_optimization(joint_angles, measured_positions, initial_params, opti
     plt.title('Position Error Comparison')
     plt.legend()
     plt.grid(True)
-    plt.savefig('error_comparison.png')
+    plt.savefig('graph/error_comparison.png')
     plt.show()
+    
+    # 保存误差数据到结果文件
+    error_file = 'result/error_comparison.txt'
+    with open(error_file, 'w', encoding='utf-8') as f:
+        f.write("# 优化前后误差比较\n")
+        f.write("# 格式: 样本索引, 初始误差(mm), 优化后误差(mm), 改进(%)\n\n")
+        
+        for i in range(len(initial_errors)):
+            improvement = (1 - optimized_errors[i] / initial_errors[i]) * 100
+            f.write(f"{i}, {initial_errors[i]:.6f}, {optimized_errors[i]:.6f}, {improvement:.2f}\n")
+        
+        # 添加统计摘要
+        f.write("\n# 统计摘要\n")
+        f.write(f"平均初始误差: {np.mean(initial_errors):.6f} mm\n")
+        f.write(f"平均优化后误差: {np.mean(optimized_errors):.6f} mm\n")
+        f.write(f"最大初始误差: {np.max(initial_errors):.6f} mm\n")
+        f.write(f"最大优化后误差: {np.max(optimized_errors):.6f} mm\n")
+        f.write(f"平均误差改进: {(1 - np.mean(optimized_errors) / np.mean(initial_errors)) * 100:.2f}%\n")
+    
+    print(f"误差比较数据已保存到 {error_file}")
 
 if __name__ == "__main__":
     main()
