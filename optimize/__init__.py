@@ -7,7 +7,7 @@
 # 可以在这里导出常用的函数，使其可以直接从包中导入
 from .kinematics import error_function, forward_kinematics_with_params
 from .data_utils import load_data, save_formatted_dh_params
-from .optimization import differential_evolution, optimize_with_lm
+from .optimization import differential_evolution, optimize_with_lm,optimize_with_local, optimize_with_minimize
 from .validation import validate_optimization
 from .visualization import plot_convergence, plot_error_comparison
 

@@ -1,6 +1,6 @@
 import numpy as np
 import random
-from scipy.optimize import least_squares
+from scipy.optimize import least_squares, minimize
 from .utils import rmse
 
 def differential_evolution(func, bounds, joint_angles, measured_positions, 
@@ -108,10 +108,68 @@ def optimize_with_lm(initial_params, joint_angles, measured_positions, func):
         initial_params,
         args=(joint_angles, measured_positions),
         method='lm',
-        ftol=1e-8,
-        xtol=1e-8,
+        ftol=1e-12,
+        xtol=1e-12,
         verbose=1
     )
     
     print(f"LM优化完成，最终RMSE: {rmse(result.fun):.6f}")
     return result.x, rmse(result.fun)
+
+def optimize_with_local(initial_params, joint_angles, measured_positions, func, 
+                        method='lm', ftol=1e-12, xtol=1e-12):
+    """使用局部优化算法进一步优化DH参数
+
+    参数:
+        initial_params: 初始参数向量
+        joint_angles: 关节角数据
+        measured_positions: 测量得到的末端位置数据
+        func: 误差函数
+        method: 使用的 least_squares 方法，可选 'lm'、'trf'、'dogbox'
+        ftol: 目标函数收敛公差
+        xtol: 参数更新收敛公差
+
+    返回:
+        (优化后的参数, 最终RMSE)
+    """
+    print(f"开始使用 {method} 方法进行局部优化...")
+    
+    from scipy.optimize import least_squares  # 确保导入在函数内或在文件顶部
+    
+    result = least_squares(
+        func,
+        initial_params,
+        args=(joint_angles, measured_positions),
+        method=method,
+        ftol=ftol,
+        xtol=xtol,
+        verbose=1
+    )
+    
+    final_rmse = rmse(result.fun)
+    print(f"{method} 优化完成，最终RMSE: {final_rmse:.6f}")
+    return result.x, final_rmse
+
+def optimize_with_minimize(initial_params, joint_angles, measured_positions, func, bounds, method='L-BFGS-B'):
+    """
+    使用 SciPy 的 minimize 函数进行局部优化
+    参数:
+        initial_params: 初始参数向量
+        joint_angles: 关节角数据（数组或矩阵）
+        measured_positions: 测量得到的末端位置数据（数组或矩阵）
+        func: 误差函数，输入参数为参数向量、joint_angles、measured_positions，返回误差向量
+        bounds: 参数边界，格式为 [(lower, upper), ...]
+        method: 优化方法，例如 'L-BFGS-B' 或 'SLSQP'
+    返回:
+        (优化后的参数, 最终RMSE)
+    """
+    # 将误差函数包装为标量目标函数（RMSE）
+    def objective(params):
+        errors = func(params, joint_angles, measured_positions)
+        return rmse(errors)
+    
+    res = minimize(objective, initial_params, method=method, bounds=bounds)
+    final_params = res.x
+    final_rmse = objective(final_params)
+    print(f"{method} 优化完成，最终RMSE: {final_rmse:.6f}")
+    return final_params, final_rmse
