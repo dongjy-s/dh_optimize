@@ -4,7 +4,7 @@ from scipy.optimize import least_squares, minimize
 from .utils import rmse
 
 def differential_evolution(func, bounds, joint_angles, measured_positions, 
-                           popsize=20, maxiter=100, F=0.8, CR=0.5):
+                           popsize=20, maxiter=100, F=0.8, CR=0.9):
     """差分进化算法"""
     # 参数维度
     dimensions = len(bounds)

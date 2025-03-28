@@ -9,7 +9,6 @@ from optimize.validation import validate_optimization
 def main():
     # 创建目录
     ensure_dir('graph')
-    ensure_dir('results')
     
     # 加载测量数据
     joint_angles, measured_positions = load_data('Pos_real.txt')
@@ -35,7 +34,7 @@ def main():
     print("\n开始DE全局优化...")
     de_optimized_params, de_fitness, de_history = differential_evolution(
         error_function, bounds, joint_angles, measured_positions, 
-        popsize=30, maxiter=100, F=0.8, CR=0.7
+        popsize=50, maxiter=100, F=0.8, CR=0.9
     )
     
     print_dh_params(de_optimized_params, "DE优化")
@@ -52,7 +51,7 @@ def main():
     # method='trf', ftol=1e-8, xtol=1e-8
     # )
     
-#     # 使用 L-BFGS-B 方法
+#     # 使用 minimize优化 方法
 #     final_params, final_rmse = optimize_with_minimize(
 #     de_optimized_params, joint_angles, measured_positions, error_function, bounds, method='SLSQP'
 # )
