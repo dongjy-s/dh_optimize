@@ -31,11 +31,11 @@ def setup_bounds(initial_params):
     bounds = []
     for param in initial_params:
         if param == 0:
-            bounds.append((-100, 100))
+            bounds.append((-10, 10))
         else:
             # 计算放宽边界时先取小值和大值
-            lower = min(param * 0.7, param * 1.3)
-            upper = max(param * 0.7, param * 1.3)
+            lower = min(param * 0.9, param * 1.1)
+            upper = max(param * 0.9, param * 1.1)
             bounds.append((lower, upper))
     return bounds
 
