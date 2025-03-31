@@ -1,22 +1,52 @@
 import numpy as np
 
 def load_data(filename):
-    """加载测量数据"""
+    """加载测量数据
+    
+    从data.txt文件中加载关节角度和末端位置数据，
+    文件格式包含关节角度部分和位置数据部分。
+    
+    Args:
+        filename (str): 数据文件路径
+    
+    Returns:
+        tuple: 包含两个numpy数组，关节角度和对应的末端位置
+    """
     joint_angles = []
     measured_positions = []
     
     with open(filename, 'r', encoding='utf-8') as f:
-        # 跳过前两行标题
-        next(f)
-        next(f)
+        lines = f.readlines()
         
-        for line in f:
-            parts = line.strip().split('|')
-            joints = list(map(float, parts[0].strip().split()))
-            positions = list(map(float, parts[1].strip().split()))
-            
-            joint_angles.append(joints)
-            measured_positions.append(positions)
+        # 查找分隔符的位置
+        separator_index = -1
+        for i, line in enumerate(lines):
+            if line.strip() == "--------":
+                separator_index = i
+                break
+        
+        if separator_index == -1:
+            raise ValueError("无法在文件中找到分隔符 '--------'")
+        
+        # 提取关节角度（跳过第一行标题）
+        for i in range(1, separator_index):
+            line = lines[i].strip()
+            if line and not line.startswith("#"):
+                values = [float(val.strip()) for val in line.split(',') if val.strip()]
+                if len(values) >= 6:  # 确保至少有6个值
+                    joint_angles.append(values[:6])  # 只取前6个值（关节角度）
+        
+        # 提取位置数据（跳过位置标题行）
+        for i in range(separator_index + 2, len(lines)):
+            line = lines[i].strip()
+            if line and not line.startswith("#"):
+                values = [float(val.strip()) for val in line.split(',') if val.strip()]
+                if len(values) >= 3:  # 确保至少有3个值
+                    measured_positions.append(values[:3])  # 只取前3个值（x,y,z坐标）
+    
+    # 检查是否有相同数量的关节角度和位置数据
+    if len(joint_angles) != len(measured_positions):
+        print(f"警告: 关节角度数量({len(joint_angles)})与位置数据数量({len(measured_positions)})不匹配")
     
     return np.array(joint_angles), np.array(measured_positions)
 
@@ -103,4 +133,3 @@ def _add_error_summary(file, initial_errors, optimized_errors):
     file.write(f"最大初始误差: {np.max(initial_errors):.6f} mm\n")
     file.write(f"最大优化后误差: {np.max(optimized_errors):.6f} mm\n")
     file.write(f"平均误差改进: {(1 - np.mean(optimized_errors) / np.mean(initial_errors)) * 100:.2f}%\n")
-

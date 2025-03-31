@@ -11,7 +11,7 @@ def main():
     ensure_dir('graph')
     
     # 加载测量数据
-    joint_angles, measured_positions = load_data('Pos_real.txt')
+    joint_angles, measured_positions = load_data('data.txt')
     print(f"加载了 {len(joint_angles)} 组样本数据")
     
     # 获取初始DH参数
