@@ -3,12 +3,11 @@ from optimize.utils import ensure_dir, print_dh_params, calculate_param_changes,
 from optimize.data_utils import load_data, save_formatted_dh_params
 from optimize.kinematics import error_function
 from optimize.optimization import differential_evolution, optimize_with_lm, optimize_with_local, optimize_with_minimize
-from optimize.visualization import plot_convergence
 from optimize.validation import validate_optimization
 
 def main():
     # 创建目录
-    ensure_dir('graph')
+    ensure_dir('result')
     
     # 加载测量数据
     joint_angles, measured_positions = load_data('data.txt')
@@ -61,8 +60,6 @@ def main():
     # 计算参数变化
     calculate_param_changes(initial_dh_params, final_params)
     
-    # 绘制收敛曲线
-    plot_convergence(de_history, initial_rmse, final_rmse, 'graph/optimization_convergence.png')
     
     # 保存优化后的参数
     result_file = 'result/optimized_dh_params.txt'
