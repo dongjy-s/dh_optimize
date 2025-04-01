@@ -47,6 +47,10 @@ def load_data(filename):
     # 检查是否有相同数量的关节角度和位置数据
     if len(joint_angles) != len(measured_positions):
         print(f"警告: 关节角度数量({len(joint_angles)})与位置数据数量({len(measured_positions)})不匹配")
+
+    print(f"加载的角度为：", joint_angles)
+    print("-------------------------------")
+    print(f"加载的位置为：", measured_positions)
     
     return np.array(joint_angles), np.array(measured_positions)
 
