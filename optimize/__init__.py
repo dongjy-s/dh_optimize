@@ -9,7 +9,6 @@ from .kinematics import error_function, forward_kinematics_with_params
 from .data_utils import load_data, save_formatted_dh_params
 from .optimization import differential_evolution, optimize_with_lm,optimize_with_local, optimize_with_minimize
 from .validation import validate_optimization
-from .visualization import plot_convergence, plot_error_comparison
 
 # 包的版本号
 __version__ = '0.1.0'

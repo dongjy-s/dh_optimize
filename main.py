@@ -4,7 +4,6 @@ from optimize.data_utils import load_data, save_formatted_dh_params
 from optimize.kinematics import error_function
 from optimize.optimization import differential_evolution, optimize_with_lm, optimize_with_local, optimize_with_minimize
 from optimize.validation import validate_optimization
-
 def main():
     # 创建目录
     ensure_dir('result')
@@ -60,14 +59,14 @@ def main():
     # 计算参数变化
     calculate_param_changes(initial_dh_params, final_params)
     
-    
+    # 验证优化效果
+    validate_optimization(joint_angles, measured_positions, initial_dh_params, final_params)
+
     # 保存优化后的参数
     result_file = 'result/optimized_dh_params.txt'
     save_formatted_dh_params(result_file, final_params, initial_dh_params)
     print(f"优化后的参数已保存到 {result_file}")
     
-    # 验证优化效果
-    validate_optimization(joint_angles, measured_positions, initial_dh_params, final_params)
 
 if __name__ == "__main__":
     main()
