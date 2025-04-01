@@ -34,7 +34,7 @@ def main():
     print("\n开始DE全局优化...")
     de_optimized_params, de_fitness, de_history = differential_evolution(
         error_function, bounds, joint_angles, measured_positions, 
-        popsize=50, maxiter=100, F=0.8, CR=0.9
+        popsize=50, maxiter=100, F=0.5, CR=0.9
     )
     
     print_dh_params(de_optimized_params, "DE优化")

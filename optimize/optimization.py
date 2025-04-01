@@ -5,74 +5,96 @@ from .utils import rmse
 
 def differential_evolution(func, bounds, joint_angles, measured_positions, 
                            popsize=20, maxiter=100, F=0.8, CR=0.9):
-    """差分进化算法"""
+    """差分进化算法
+    参数:
+        func: 目标函数，计算个体适应度
+        bounds: 参数边界列表，每个元素为(min,max)元组
+        joint_angles: 关节角度数据
+        measured_positions: 测量位置数据
+        popsize: 种群大小(默认20)
+        maxiter: 最大迭代次数(默认100)
+        F: 变异因子(默认0.8)
+        CR: 交叉概率(默认0.9)
+    返回:
+        best_solution: 最优参数解
+        best_fitness: 最优适应度值
+        history: 收敛历史记录
+    """
     # 参数维度
-    dimensions = len(bounds)
+    dimensions = len(bounds)  # 获取参数维度数
     
     # 初始化种群
-    population = _initialize_population(popsize, dimensions, bounds)
+    population = _initialize_population(popsize, dimensions, bounds)  # 随机初始化种群
     
     # 计算初始种群的适应度
-    fitness = [rmse(func(ind, joint_angles, measured_positions)) for ind in population]
+    fitness = [rmse(func(ind, joint_angles, measured_positions)) for ind in population]  # 计算每个个体的RMSE
     
     # 找到最佳个体
-    best_idx = np.argmin(fitness)
-    best_solution = population[best_idx].copy()
-    best_fitness = fitness[best_idx]
+    best_idx = np.argmin(fitness)  # 获取最优个体索引
+    best_solution = population[best_idx].copy()  # 深拷贝最优个体
+    best_fitness = fitness[best_idx]  # 记录最优适应度
     
     # 记录收敛历史
-    history = [best_fitness]
+    history = [best_fitness]  # 初始化历史记录
     
     # 开始迭代
     for generation in range(maxiter):
+        # 进化一代种群
         population, fitness, best_solution, best_fitness = _evolve_population(
             population, fitness, func, bounds, dimensions, 
             joint_angles, measured_positions, F, CR, best_solution, best_fitness
         )
         
         # 记录当前代的最佳适应度
-        history.append(best_fitness)
+        history.append(best_fitness)  # 添加到历史记录
         
-        # 打印进度
+        # 每10代打印一次进度
         if (generation + 1) % 10 == 0:
             print(f"DE 迭代 {generation + 1}/{maxiter}, 最佳RMSE: {best_fitness:.6f}")
     
-    return best_solution, best_fitness, history
+    return best_solution, best_fitness, history  # 返回最终结果
 
 def _initialize_population(popsize, dimensions, bounds):
     """初始化DE种群"""
-    population = []
-    for i in range(popsize):
-        individual = [random.uniform(bounds[j][0], bounds[j][1]) for j in range(dimensions)]
-        population.append(individual)
-    return population
+    population = []  # 创建空列表用于存储种群
+    for i in range(popsize):  # 遍历种群中的每个个体
+        individual = []  # 创建空列表用于存储个体参数
+        for j in range(dimensions):  # 遍历每个参数维度
+            # 在参数边界范围内生成随机值
+            param = random.uniform(bounds[j][0], bounds[j][1])
+            individual.append(param)  # 将参数添加到个体中
+        population.append(individual)  # 将个体添加到种群中
+    return population  # 返回初始化完成的种群
 
 def _evolve_population(population, fitness, func, bounds, dimensions, 
                       joint_angles, measured_positions, F, CR, 
                       best_solution, best_fitness):
     """进化DE种群一代"""
-    popsize = len(population)
+    popsize = len(population)  # 获取当前种群大小
     
     for i in range(popsize):
-        # 选择三个不同的个体，且都不是当前个体
-        candidates = list(range(popsize))
-        candidates.remove(i)
-        a, b, c = random.sample(candidates, 3)
+        # 1. 选择阶段：从种群中选择3个不同的候选个体
+        candidates = list(range(popsize))  # 创建候选索引列表
+        candidates.remove(i)  # 排除当前个体自身
+        a, b, c = random.sample(candidates, 3)  # 随机选择3个不同个体
         
-        # 变异和交叉
+        # 2. 变异和交叉阶段：生成试验向量
         trial = _mutation_crossover(population, i, a, b, c, dimensions, F, CR, bounds)
         
-        # 选择
+        # 3. 选择阶段：评估试验向量的适应度
         trial_fitness = rmse(func(trial, joint_angles, measured_positions))
+        
+        # 4. 贪婪选择：如果试验向量更好则替换当前个体
         if trial_fitness < fitness[i]:
-            population[i] = trial
-            fitness[i] = trial_fitness
+            population[i] = trial  # 更新种群中的个体
+            fitness[i] = trial_fitness  # 更新适应度值
             
-            # 更新全局最优
+            # 5. 更新全局最优解
             if trial_fitness < best_fitness:
-                best_solution = trial.copy()
-                best_fitness = trial_fitness
+                best_solution = trial.copy()  # 深拷贝当前最优解
+                best_fitness = trial_fitness  # 更新最优适应度
     
+    # 返回更新后的种群、适应度、最优解和最优适应度
     return population, fitness, best_solution, best_fitness
 
 def _mutation_crossover(population, i, a, b, c, dimensions, F, CR, bounds):
@@ -104,13 +126,13 @@ def optimize_with_lm(initial_params, joint_angles, measured_positions, func):
     
     # 使用scipy的最小二乘优化
     result = least_squares(
-        func,
-        initial_params,
-        args=(joint_angles, measured_positions),
-        method='lm',
-        ftol=1e-12,
-        xtol=1e-12,
-        verbose=1
+        func,                                    # 误差函数，输入是参数向量，返回误差向量
+        initial_params,                          # 初始参数估计值，通常是之前DE算法得到的结果
+        args=(joint_angles, measured_positions), # 额外传递给误差函数的参数(关节角和测量位置)
+        method='lm',                            # 使用Levenberg-Marquardt算法
+        ftol=1e-12,                             # 函数值收敛容差，值越小，收敛要求越严格
+        xtol=1e-12,                             # 参数值收敛容差，值越小，收敛要求越严格
+        verbose=1                               # 打印优化过程中的信息，1表示简略信息
     )
     
     print(f"LM优化完成，最终RMSE: {rmse(result.fun):.6f}")
