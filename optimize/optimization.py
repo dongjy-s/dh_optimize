@@ -4,7 +4,8 @@ from scipy.optimize import least_squares, minimize
 from .utils import rmse
 
 def differential_evolution(func, bounds, joint_angles, measured_positions, 
-                           popsize=20, maxiter=100, F=0.8, CR=0.9):
+                           popsize=20, maxiter=100, F=0.8, CR=0.9,
+                           measured_quaternions=None, position_weight=1.0, quaternion_weight=0.5):
     """差分进化算法
     参数:
         func: 目标函数，计算个体适应度
@@ -15,6 +16,9 @@ def differential_evolution(func, bounds, joint_angles, measured_positions,
         maxiter: 最大迭代次数(默认100)
         F: 变异因子(默认0.8)
         CR: 交叉概率(默认0.9)
+        measured_quaternions: 测量姿态四元数数据(可选)
+        position_weight: 位置误差权重(默认1.0)
+        quaternion_weight: 四元数误差权重(默认0.5)
     返回:
         best_solution: 最优参数解
         best_fitness: 最优适应度值
@@ -27,7 +31,14 @@ def differential_evolution(func, bounds, joint_angles, measured_positions,
     population = _initialize_population(popsize, dimensions, bounds)  # 随机初始化种群
     
     # 计算初始种群的适应度
-    fitness = [rmse(func(ind, joint_angles, measured_positions)) for ind in population]  # 计算每个个体的RMSE
+    if measured_quaternions is not None:
+        fitness = [rmse(func(ind, joint_angles, measured_positions, 
+                            measured_quaternions=measured_quaternions,
+                            position_weight=position_weight, 
+                            quaternion_weight=quaternion_weight)) 
+                  for ind in population]
+    else:
+        fitness = [rmse(func(ind, joint_angles, measured_positions)) for ind in population]
     
     # 找到最佳个体
     best_idx = np.argmin(fitness)  # 获取最优个体索引
@@ -42,7 +53,8 @@ def differential_evolution(func, bounds, joint_angles, measured_positions,
         # 进化一代种群
         population, fitness, best_solution, best_fitness = _evolve_population(
             population, fitness, func, bounds, dimensions, 
-            joint_angles, measured_positions, F, CR, best_solution, best_fitness
+            joint_angles, measured_positions, F, CR, best_solution, best_fitness,
+            measured_quaternions, position_weight, quaternion_weight
         )
         
         # 记录当前代的最佳适应度
@@ -68,7 +80,8 @@ def _initialize_population(popsize, dimensions, bounds):
 
 def _evolve_population(population, fitness, func, bounds, dimensions, 
                       joint_angles, measured_positions, F, CR, 
-                      best_solution, best_fitness):
+                      best_solution, best_fitness,
+                      measured_quaternions=None, position_weight=1.0, quaternion_weight=0.5):
     """进化DE种群一代"""
     popsize = len(population)  # 获取当前种群大小
     
@@ -82,7 +95,13 @@ def _evolve_population(population, fitness, func, bounds, dimensions,
         trial = _mutation_crossover(population, i, a, b, c, dimensions, F, CR, bounds)
         
         # 3. 选择阶段：评估试验向量的适应度
-        trial_fitness = rmse(func(trial, joint_angles, measured_positions))
+        if measured_quaternions is not None:
+            trial_fitness = rmse(func(trial, joint_angles, measured_positions, 
+                                     measured_quaternions=measured_quaternions,
+                                     position_weight=position_weight, 
+                                     quaternion_weight=quaternion_weight))
+        else:
+            trial_fitness = rmse(func(trial, joint_angles, measured_positions))
         
         # 4. 贪婪选择：如果试验向量更好则替换当前个体
         if trial_fitness < fitness[i]:
@@ -120,7 +139,8 @@ def _mutation_crossover(population, i, a, b, c, dimensions, F, CR, bounds):
     
     return trial
 
-def optimize_with_lm(initial_params, joint_angles, measured_positions, error_func, bounds=None):
+def optimize_with_lm(initial_params, joint_angles, measured_positions, error_func, bounds=None,
+                    measured_quaternions=None, position_weight=1.0, quaternion_weight=0.5):
     """使用Levenberg-Marquardt算法优化DH参数，添加参数约束
     
     Args:
@@ -129,6 +149,9 @@ def optimize_with_lm(initial_params, joint_angles, measured_positions, error_fun
         measured_positions: 测量位置数据
         error_func: 误差函数
         bounds: 参数边界，格式为[(min1, max1), (min2, max2), ...] (可选)
+        measured_quaternions: 测量姿态四元数数据(可选)
+        position_weight: 位置误差权重(默认1.0)
+        quaternion_weight: 四元数误差权重(默认0.5)
     
     Returns:
         optimized_params: 优化后的参数
@@ -142,7 +165,13 @@ def optimize_with_lm(initial_params, joint_angles, measured_positions, error_fun
     # 定义目标函数
     def objective(params):
         # 计算常规误差
-        errors = error_func(params, joint_angles, measured_positions)
+        if measured_quaternions is not None:
+            errors = error_func(params, joint_angles, measured_positions, 
+                               measured_quaternions=measured_quaternions,
+                               position_weight=position_weight, 
+                               quaternion_weight=quaternion_weight)
+        else:
+            errors = error_func(params, joint_angles, measured_positions)
         
         # 如果提供了边界，添加边界惩罚
         if bounds is not None:
@@ -204,7 +233,16 @@ def optimize_with_lm(initial_params, joint_angles, measured_positions, error_fun
         
         # 获取优化结果
         optimized_params = result.x
-        final_errors = error_func(optimized_params, joint_angles, measured_positions)
+        
+        # 计算最终误差，使用相同的方式
+        if measured_quaternions is not None:
+            final_errors = error_func(optimized_params, joint_angles, measured_positions, 
+                                     measured_quaternions=measured_quaternions,
+                                     position_weight=position_weight, 
+                                     quaternion_weight=quaternion_weight)
+        else:
+            final_errors = error_func(optimized_params, joint_angles, measured_positions)
+            
         final_rmse = np.sqrt(np.mean(np.square(final_errors)))
         
         print(f"LM优化完成，最终RMSE: {final_rmse:.6f}\n")
@@ -215,7 +253,14 @@ def optimize_with_lm(initial_params, joint_angles, measured_positions, error_fun
         print("返回初始参数")
         
         # 计算初始参数的RMSE作为返回值
-        initial_errors = error_func(initial_params, joint_angles, measured_positions)
+        if measured_quaternions is not None:
+            initial_errors = error_func(initial_params, joint_angles, measured_positions, 
+                                       measured_quaternions=measured_quaternions,
+                                       position_weight=position_weight, 
+                                       quaternion_weight=quaternion_weight)
+        else:
+            initial_errors = error_func(initial_params, joint_angles, measured_positions)
+            
         initial_rmse = np.sqrt(np.mean(np.square(initial_errors)))
         
         return initial_params, initial_rmse
