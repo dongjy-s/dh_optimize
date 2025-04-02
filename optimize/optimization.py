@@ -120,20 +120,102 @@ def _mutation_crossover(population, i, a, b, c, dimensions, F, CR, bounds):
     
     return trial
 
-def optimize_with_lm(initial_params, joint_angles, measured_positions, func):
-    """使用LM算法进一步优化DH参数"""
-    print("开始LM优化...")
+def optimize_with_lm(initial_params, joint_angles, measured_positions, error_func, bounds=None):
+    """使用Levenberg-Marquardt算法优化DH参数，添加参数约束
     
-    # 使用scipy的最小二乘优化
-    result = least_squares(
-        func,                                    # 误差函数，输入是参数向量，返回误差向量
-        initial_params,                          # 初始参数估计值，通常是之前DE算法得到的结果
-        args=(joint_angles, measured_positions), # 额外传递给误差函数的参数(关节角和测量位置)
-        method='lm',                            # 使用Levenberg-Marquardt算法
-        ftol=1e-12,                             # 函数值收敛容差，值越小，收敛要求越严格
-        xtol=1e-12,                             # 参数值收敛容差，值越小，收敛要求越严格
-        verbose=1                               # 打印优化过程中的信息，1表示简略信息
-    )
+    Args:
+        initial_params: 初始DH参数
+        joint_angles: 关节角度数据
+        measured_positions: 测量位置数据
+        error_func: 误差函数
+        bounds: 参数边界，格式为[(min1, max1), (min2, max2), ...] (可选)
     
-    print(f"LM优化完成，最终RMSE: {rmse(result.fun):.6f}")
-    return result.x, rmse(result.fun)
+    Returns:
+        optimized_params: 优化后的参数
+        final_rmse: 最终RMSE值
+    """
+    import numpy as np
+    from scipy.optimize import least_squares
+    
+    print("\n开始LM优化...")
+    
+    # 定义目标函数
+    def objective(params):
+        # 计算常规误差
+        errors = error_func(params, joint_angles, measured_positions)
+        
+        # 如果提供了边界，添加边界惩罚
+        if bounds is not None:
+            penalty = 0
+            for i, (param, (lower, upper)) in enumerate(zip(params, bounds)):
+                if param < lower or param > upper:
+                    # 对超出边界的参数添加惩罚
+                    penalty += abs(param - (lower if param < lower else upper)) * 10
+            
+            if penalty > 0:
+                # 添加惩罚到误差向量
+                errors = np.append(errors, np.ones(10) * penalty)
+        
+        return errors
+    
+    # 设置LM优化的边界约束
+    bounds_lower = []
+    bounds_upper = []
+    
+    if bounds is not None:
+        # 使用提供的边界
+        for lower, upper in bounds:
+            bounds_lower.append(lower)
+            bounds_upper.append(upper)
+    else:
+        # 使用默认边界设置
+        for i in range(len(initial_params) // 4):
+            idx = i * 4
+            for j in range(4):
+                param = initial_params[idx + j]
+                
+                # 特殊处理连杆2和3的d参数
+                if (i == 1 or i == 2) and j == 1:
+                    bounds_lower.append(-20)
+                    bounds_upper.append(20)
+                elif abs(param) < 1e-6:  # 接近0的参数
+                    bounds_lower.append(-10)
+                    bounds_upper.append(10)
+                else:
+                    # 允许±10%的变化
+                    lower = min(param * 0.9, param * 1.1)
+                    upper = max(param * 0.9, param * 1.1)
+                    bounds_lower.append(lower)
+                    bounds_upper.append(upper)
+    
+    try:
+        # 使用Trust Region Reflective算法进行有约束优化
+        result = least_squares(
+            objective, 
+            initial_params, 
+            method='trf',  # Trust Region Reflective算法支持边界约束
+            bounds=(bounds_lower, bounds_upper),
+            ftol=1e-8, 
+            xtol=1e-8, 
+            gtol=1e-8, 
+            max_nfev=1000, 
+            verbose=1
+        )
+        
+        # 获取优化结果
+        optimized_params = result.x
+        final_errors = error_func(optimized_params, joint_angles, measured_positions)
+        final_rmse = np.sqrt(np.mean(np.square(final_errors)))
+        
+        print(f"LM优化完成，最终RMSE: {final_rmse:.6f}\n")
+        
+        return optimized_params, final_rmse
+    except Exception as e:
+        print(f"LM优化过程中出错: {e}")
+        print("返回初始参数")
+        
+        # 计算初始参数的RMSE作为返回值
+        initial_errors = error_func(initial_params, joint_angles, measured_positions)
+        initial_rmse = np.sqrt(np.mean(np.square(initial_errors)))
+        
+        return initial_params, initial_rmse

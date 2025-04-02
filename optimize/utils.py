@@ -28,15 +28,48 @@ def calculate_param_changes(initial_params, final_params):
 
 
 def setup_bounds(initial_params):
+    """为 DH 参数设置优化边界，限制角度变化不超过1度，长度变化不超过1mm"""
     bounds = []
-    for param in initial_params:
-        if param == 0:
-            bounds.append((-10, 10))
+    
+    # 遍历每个连杆的参数
+    for i in range(len(initial_params) // 4):
+        # 每个连杆有4个参数: theta_offset, d, alpha, a
+        idx = i * 4
+        
+        # 1. theta_offset (角度偏移) - 限制变化±1度
+        param = initial_params[idx]
+        if abs(param) < 1e-6:  # 对接近0的值特殊处理
+            bounds.append((-1.0, 1.0))
         else:
-            # 计算放宽边界时先取小值和大值
-            lower = min(param * 0.9, param * 1.1)
-            upper = max(param * 0.9, param * 1.1)
-            bounds.append((lower, upper))
+            bounds.append((param - 1.0, param + 1.0))
+        
+        # 2. d (连杆偏移) - 限制变化±1mm，对0值特殊处理
+        param = initial_params[idx + 1]
+        if abs(param) < 1e-6:  # 如果d值接近0，严格限制其变化范围
+            bounds.append((-1.0, 1.0))  # 绝对变化不超过1mm
+        else:
+            bounds.append((param - 1.0, param + 1.0))
+        
+        # 3. alpha (扭转角) - 限制变化±1度
+        param = initial_params[idx + 2]
+        if abs(param) < 1e-6:  # 对接近0的值特殊处理
+            bounds.append((-1.0, 1.0))
+        else:
+            bounds.append((param - 1.0, param + 1.0))
+        
+        # 4. a (连杆长度) - 限制变化±1mm
+        param = initial_params[idx + 3]
+        if abs(param) < 1e-6:  # 对接近0的值特殊处理
+            bounds.append((-1.0, 1.0))
+        else:
+            bounds.append((param - 1.0, param + 1.0))
+    
+    # 打印边界设置以便调试
+    print("\n参数优化边界:")
+    for i in range(6):
+        print(f"Link {i+1}: theta_offset={bounds[i*4]}, d={bounds[i*4+1]}, "
+              f"alpha={bounds[i*4+2]}, a={bounds[i*4+3]}")
+    
     return bounds
 
 
