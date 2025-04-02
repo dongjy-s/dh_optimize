@@ -2,7 +2,7 @@ from optimize.forward_kinematics import RokaeRobot
 from optimize.utils import ensure_dir, print_dh_params, calculate_param_changes, setup_bounds, rmse
 from optimize.data_utils import load_data, save_formatted_dh_params
 from optimize.kinematics import error_function
-from optimize.optimization import differential_evolution, optimize_with_lm, optimize_with_local, optimize_with_minimize
+from optimize.optimization import differential_evolution, optimize_with_lm
 from optimize.validation import validate_optimization
 def main():
     # 创建目录
@@ -43,16 +43,6 @@ def main():
         de_optimized_params, joint_angles, measured_positions, error_function
     )
 
-    # # 第二阶段：使用局部优化方法（例如选择 'trf' 方法）进行局部优化
-    # final_params, final_rmse = optimize_with_local(
-    # de_optimized_params, joint_angles, measured_positions, error_function,
-    # method='trf', ftol=1e-8, xtol=1e-8
-    # )
-    
-#     # 使用 minimize优化 方法
-#     final_params, final_rmse = optimize_with_minimize(
-#     de_optimized_params, joint_angles, measured_positions, error_function, bounds, method='SLSQP'
-# )
     print_dh_params(final_params, "最终优化")
     print(f"最终优化后RMSE: {final_rmse:.6f} mm")
     

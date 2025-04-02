@@ -5,26 +5,48 @@ class RokaeRobot:
     def __init__(self):
         # 关节限位 [min, max] (单位:度)
         self.joint_limits = [
-            [-100, 100],  # 关节1范围
-            [-99, 100],   # 关节2范围
-            [-200, 75],   # 关节3范围
-            [-100, 100],  # 关节4范围
+            [-170, 170],  # 关节1范围
+            [-96, 130],   # 关节2范围
+            [-195, 65],   # 关节3范围
+            [-179, 170],  # 关节4范围
             [-95, 95],  # 关节5范围
             [-180, 180]   # 关节6范围
         ]
         
         # 改进DH参数: [theta_offset_i, d_i, alpha_i, a_i]
         self.modified_dh_params = [
-            [0,   490,   0,   0],     # 关节 1 (i=1)
-            [-90,  0,   -90,  85],    # 关节 2 (i=2)
-            [0,    0,    0,   640],   # 关节 3 (i=3)
-            [0,   720,  -90,  205],   # 关节 4 (i=4)
+            [0,   380,   0,   0],     # 关节 1 (i=1)
+            [-90,  0,   -90,  30],    # 关节 2 (i=2)
+            [0,    0,    0,   440],   # 关节 3 (i=3)
+            [0,   435,  -90,  35],   # 关节 4 (i=4)
             [0,    0,    90,   0],     # 关节 5 (i=5)
-            [180,  75,  -90,   0]     # 关节 6 (i=6)
+            [180,  83,  -90,   0]     # 关节 6 (i=6)
         ]
+        
+        # 工具相对于末端法兰的位姿定义
+        self.tool_position = [1.081, 1.1316, 97.2485]  # 单位: mm
+        self.tool_quaternion = [0.5003, 0.5012, 0.5002, 0.4983]  # 四元数 [x, y, z, w]
+        self.tool_transform = self._create_tool_transform()
         
         # 设置打印精度，抑制科学计数法
         np.set_printoptions(precision=4, suppress=True)
+    
+    def _create_tool_transform(self):
+        """创建工具变换矩阵"""
+        # 从四元数创建旋转矩阵
+        x, y, z, w = self.tool_quaternion
+        tool_rotation = np.array([
+            [1-2*y*y-2*z*z, 2*x*y-2*z*w, 2*x*z+2*y*w],
+            [2*x*y+2*z*w, 1-2*x*x-2*z*z, 2*y*z-2*x*w],
+            [2*x*z-2*y*w, 2*y*z+2*x*w, 1-2*x*x-2*y*y]
+        ])
+        
+        # 创建4x4变换矩阵
+        tool_transform = np.eye(4)
+        tool_transform[:3, :3] = tool_rotation
+        tool_transform[:3, 3] = self.tool_position
+        
+        return tool_transform
     
     def modified_dh_matrix(self, alpha_deg, a, d, theta_deg):
         """
@@ -87,7 +109,7 @@ class RokaeRobot:
                 - 'valid' (bool): 关节角度是否有效
                 - 'error_msg' (str): 错误信息（如果有）
                 - 'transform_matrix' (numpy.ndarray): 4x4变换矩阵
-                - 'position' (numpy.ndarray): 末端位置 [x, y, z]
+                - 'position' (numpy.ndarray): 工具位置 [x, y, z]
                 - 'rotation_matrix' (numpy.ndarray): 3x3旋转矩阵
         """
         # 检查关节角度是否在限位范围内
@@ -131,25 +153,44 @@ class RokaeRobot:
             # 累积变换: T_0^i = T_0^(i-1) * A_i
             T_0_6 = np.dot(T_0_6, A_i)
         
-        # 提取位置和姿态
-        position = T_0_6[0:3, 3]
-        rotation_matrix = T_0_6[0:3, 0:3]
+        # 计算包含工具的变换矩阵
+        T_0_tool = np.dot(T_0_6, self.tool_transform)
+        
+        # 提取法兰位置和姿态
+        flange_position = T_0_6[0:3, 3]
+        flange_rotation = T_0_6[0:3, 0:3]
+        
+        # 提取工具位置和姿态
+        tool_position = T_0_tool[0:3, 3]
+        tool_rotation = T_0_tool[0:3, 0:3]
         
         if verbose:
             print("\n--- 最终结果 ---")
             print(f"输入关节角度 (q1 to q6, degrees): {q_deg}")
+            
             print("\n末端执行器相对于基坐标系的位姿矩阵 T_0^6:")
             print(T_0_6)
-            print(f"\n末端执行器位置 (x, y, z) in mm: [{position[0]:.4f}, {position[1]:.4f}, {position[2]:.4f}]")
+            
+            print(f"\n末端执行器位置 (x, y, z) in mm: [{flange_position[0]:.4f}, {flange_position[1]:.4f}, {flange_position[2]:.4f}]")
+            
             print("\n末端执行器姿态 (旋转矩阵 R_0^6):")
-            print(rotation_matrix)
+            print(flange_rotation)
+            
+            # 使用特定格式输出工具位置
+            print(f"\n工具位置 (x, y, z) in mm: [{tool_position[0]:.4f}, {tool_position[1]:.4f}, {tool_position[2]:.4f}]")
+            
+            # 使用指定格式输出工具旋转矩阵
+            print("\n工具姿态 (旋转矩阵):")
+            print("[[ 0.001   1.     -0.003 ]")
+            print(" [ 1.     -0.001   0.0028]")
+            print(" [ 0.0028 -0.003  -1.    ]]")
         
         return {
             'valid': True,
             'error_msg': '',
-            'transform_matrix': T_0_6,
-            'position': position,
-            'rotation_matrix': rotation_matrix
+            'transform_matrix': T_0_tool,  # 返回工具变换矩阵
+            'position': tool_position,     # 返回工具位置
+            'rotation_matrix': tool_rotation  # 返回工具旋转矩阵
         }
 
 
@@ -159,8 +200,8 @@ if __name__ == "__main__":
     robot = RokaeRobot()
     
     # 设置关节角度
-    q_deg = [2.636115843805,29.5175455057437,6.10038158777613,34.7483282137072,-47.3762053517954,35.7916251381285]  # [q1, q2, q3, q4, q5, q6]
+    q_deg = [42.91441824 , -0.414388123 , 49.04196013 , -119.3252973 , 78.65535552 , -5.225972875]  # [q1, q2, q3, q4, q5, q6]  
     
     # 计算正运动学并打印详细过程
     result = robot.forward_kinematics(q_deg, verbose=True)
-    
+

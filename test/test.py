@@ -1,342 +1,187 @@
+import sys
+import os
+
+# 添加项目根目录到Python路径
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from optimize.forward_kinematics import RokaeRobot
 import numpy as np
-import math
-from scipy.spatial.transform import Rotation
 
-class RokaeRobot:
-    def __init__(self):
-        # 关节限位 [min, max] (单位:度)
-        self.joint_limits = [
-            [-100, 100],  # 关节1范围
-            [-99, 100],   # 关节2范围
-            [-200, 75],   # 关节3范围
-            [-100, 100],  # 关节4范围
-            [-95, 95],  # 关节5范围
-            [-180, 180]   # 关节6范围
-        ]
-        
-        # 改进DH参数: [theta_offset_i, d_i, alpha_i, a_i]
-        self.modified_dh_params = [
-            [0,   490,   0,   0],     # 关节 1 (i=1)
-            [-90,  0,   -90,  85],    # 关节 2 (i=2)
-            [0,    0,    0,   640],   # 关节 3 (i=3)
-            [0,   720,  -90,  205],   # 关节 4 (i=4)
-            [0,    0,    90,   0],     # 关节 5 (i=5)
-            [180,  75,  -90,   0]     # 关节 6 (i=6)
-        ]
-        
-        # 工具坐标系相对于末端坐标系的位姿
-        self.tool_pose = {
-            'position': np.array([-0.196, -1.3694, 92.5868]),  # 单位: mm
-            'quaternion': np.array([-0.495, 0.5046, 0.5051, -0.4953])  # rx, ry, rz, w
-        }
-        
-        # 设置打印精度，抑制科学计数法
-        np.set_printoptions(precision=4, suppress=True)
+def format_joint_angles(angles):
+    """格式化关节角度显示"""
+    return ', '.join([f"{angle:.4f}" for angle in angles])
+
+def format_position(position):
+    """格式化位置显示"""
+    return f"[{position[0]:.4f}, {position[1]:.4f}, {position[2]:.4f}]"
+
+def test_forward_kinematics():
+    """测试正运动学计算"""
+    print("\n============= 正运动学测试 =============")
     
-    def modified_dh_matrix(self, alpha_deg, a, d, theta_deg):
-        """
-        根据改进DH参数计算变换矩阵 A_i (从 frame i-1 到 frame i 的变换)
-
-        Args:
-            alpha_deg (float): alpha_i in degrees (绕 x_i 旋转角度)
-            a (float): a_i in mm (沿 x_i 平移距离)
-            d (float): d_i in mm (沿 z_(i-1) 平移距离)
-            theta_deg (float): theta_i in degrees (绕 z_(i-1) 旋转角度)
-
-        Returns:
-            numpy.ndarray: 4x4 transformation matrix
-        """
-        # 将角度从度转换为弧度
-        alpha_rad = math.radians(alpha_deg)
-        theta_rad = math.radians(theta_deg)
-
-        cos_theta = math.cos(theta_rad)
-        sin_theta = math.sin(theta_rad)
-        cos_alpha = math.cos(alpha_rad)
-        sin_alpha = math.sin(alpha_rad)
-
-        # 改进DH变换矩阵公式:
-        # A_i = Rot_z(theta_i) * Trans_z(d_i) * Rot_x(alpha_i) * Trans_x(a_i)
-        A = np.array([
-            [cos_theta, -sin_theta, 0, a],
-            [sin_theta*cos_alpha, cos_theta*cos_alpha, -sin_alpha, -sin_alpha*d],
-            [sin_theta*sin_alpha, cos_theta*sin_alpha, cos_alpha, cos_alpha*d],
-            [0, 0, 0, 1]
-        ])
-        return A
-    
-    def check_joint_limits(self, q_deg):
-        """
-        检查关节角度是否在限位范围内
-
-        Args:
-            q_deg (list): 关节角度列表 [q1, q2, q3, q4, q5, q6] 单位为度
-
-        Returns:
-            bool: 如果所有关节角度在限位范围内则返回True，否则返回False
-            str: 超出限位的关节信息，如果所有关节在限位内则返回空字符串
-        """
-        for i, q in enumerate(q_deg):
-            if q < self.joint_limits[i][0] or q > self.joint_limits[i][1]:
-                return False, f"关节{i+1}角度 {q}° 超出限位范围 [{self.joint_limits[i][0]}°, {self.joint_limits[i][1]}°]"
-        return True, ""
-    
-    def forward_kinematics(self, q_deg, verbose=False):
-        """
-        根据关节角度计算末端执行器位姿（正运动学）
-
-        Args:
-            q_deg (list): 关节角度列表 [q1, q2, q3, q4, q5, q6] 单位为度
-            verbose (bool): 是否打印详细计算过程，默认为False
-
-        Returns:
-            dict: 包含以下键值:
-                - 'valid' (bool): 关节角度是否有效
-                - 'error_msg' (str): 错误信息（如果有）
-                - 'transform_matrix' (numpy.ndarray): 4x4变换矩阵
-                - 'position' (numpy.ndarray): 末端位置 [x, y, z]
-                - 'rotation_matrix' (numpy.ndarray): 3x3旋转矩阵
-        """
-        # 检查关节角度是否在限位范围内
-        is_valid, error_msg = self.check_joint_limits(q_deg)
-        if not is_valid:
-            if verbose:
-                print(f"错误: {error_msg}")
-                print("正运动学计算已中止。")
-            return {
-                'valid': False,
-                'error_msg': error_msg,
-                'transform_matrix': None,
-                'position': None,
-                'rotation_matrix': None
-            }
-        
-        # 初始化总变换矩阵 T_0^6 为单位矩阵
-        T_0_6 = np.identity(4)
-        
-        if verbose:
-            print("--- 计算过程 (改进DH参数) ---")
-            print(f"所有关节角度在限位范围内，继续计算...")
-        
-        # 循环计算每个关节的变换矩阵并累乘
-        for i in range(6):
-            # 从modified_dh_params列表中获取当前关节的参数
-            theta_offset_i = self.modified_dh_params[i][0]
-            d_i = self.modified_dh_params[i][1]
-            alpha_i = self.modified_dh_params[i][2]
-            a_i = self.modified_dh_params[i][3]
-
-            # 获取当前关节的可变角度 q_i
-            q_i = q_deg[i]
-
-            # 计算实际的 theta_i = q_i + theta_offset_i
-            theta_i = q_i + theta_offset_i
-
-            # 计算当前关节的变换矩阵 A_i (T_(i-1)^i)
-            A_i = self.modified_dh_matrix(alpha_i, a_i, d_i, theta_i)
-
-            # 累积变换: T_0^i = T_0^(i-1) * A_i
-            T_0_6 = np.dot(T_0_6, A_i)
-        
-        # 提取位置和姿态
-        position = T_0_6[0:3, 3]
-        rotation_matrix = T_0_6[0:3, 0:3]
-        
-        if verbose:
-            print("\n--- 最终结果 ---")
-            print(f"输入关节角度 (q1 to q6, degrees): {q_deg}")
-            print("\n末端执行器相对于基坐标系的位姿矩阵 T_0^6:")
-            print(T_0_6)
-            print(f"\n末端执行器位置 (x, y, z) in mm: [{position[0]:.4f}, {position[1]:.4f}, {position[2]:.4f}]")
-            print("\n末端执行器姿态 (旋转矩阵 R_0^6):")
-            print(rotation_matrix)
-        
-        return {
-            'valid': True,
-            'error_msg': '',
-            'transform_matrix': T_0_6,
-            'position': position,
-            'rotation_matrix': rotation_matrix
-        }
-    
-    def get_tool_pose(self):
-        """
-        获取工具坐标系相对于末端坐标系的位姿
-        
-        Returns:
-            dict: 包含以下键值:
-                - 'position' (numpy.ndarray): 工具位置 [x, y, z] (mm)
-                - 'quaternion' (numpy.ndarray): 工具姿态四元数 [rx, ry, rz, w]
-                - 'rotation_matrix' (numpy.ndarray): 3x3旋转矩阵
-                - 'transform_matrix' (numpy.ndarray): 4x4变换矩阵
-        """
-        # 从四元数创建旋转矩阵
-        quat = self.tool_pose['quaternion']
-        rotation = Rotation.from_quat([quat[0], quat[1], quat[2], quat[3]])
-        rot_matrix = rotation.as_matrix()
-        
-        # 创建工具相对于末端的变换矩阵
-        T_6_tool = np.eye(4)
-        T_6_tool[0:3, 0:3] = rot_matrix
-        T_6_tool[0:3, 3] = self.tool_pose['position']
-        
-        return {
-            'position': self.tool_pose['position'],
-            'quaternion': self.tool_pose['quaternion'],
-            'rotation_matrix': rot_matrix,
-            'transform_matrix': T_6_tool
-        }
-    
-    def get_tool_pose_in_base(self, q_deg, verbose=False):
-        """
-        计算工具坐标系相对于基坐标系的位姿
-        
-        Args:
-            q_deg (list): 关节角度列表 [q1, q2, q3, q4, q5, q6] 单位为度
-            verbose (bool): 是否打印详细计算过程，默认为False
-            
-        Returns:
-            dict: 包含以下键值:
-                - 'valid' (bool): 关节角度是否有效
-                - 'error_msg' (str): 错误信息（如果有）
-                - 'transform_matrix' (numpy.ndarray): 工具相对于基坐标系的4x4变换矩阵
-                - 'position' (numpy.ndarray): 工具相对于基坐标系的位置 [x, y, z]
-                - 'rotation_matrix' (numpy.ndarray): 工具相对于基坐标系的3x3旋转矩阵
-                - 'quaternion' (numpy.ndarray): 工具相对于基坐标系的姿态四元数 [rx, ry, rz, w]
-        """
-        # 首先计算末端相对于基坐标系的位姿
-        flange_result = self.forward_kinematics(q_deg, verbose=False)
-        
-        if not flange_result['valid']:
-            return flange_result
-        
-        # 获取工具相对于末端的位姿
-        tool_pose = self.get_tool_pose()
-        
-        # 计算工具相对于基坐标系的位姿: T_0_tool = T_0_6 * T_6_tool
-        T_0_6 = flange_result['transform_matrix']
-        T_6_tool = tool_pose['transform_matrix']
-        T_0_tool = np.dot(T_0_6, T_6_tool)
-        
-        # 提取位置和旋转
-        position = T_0_tool[0:3, 3]
-        rotation_matrix = T_0_tool[0:3, 0:3]
-        
-        # 计算四元数
-        r = Rotation.from_matrix(rotation_matrix)
-        quaternion = r.as_quat()  # [x, y, z, w]
-        
-        if verbose:
-            print("\n--- 工具坐标系相对于基坐标系的位姿 ---")
-            print("\n工具相对于末端的位姿:")
-            print(f"位置 (x, y, z) in mm: {tool_pose['position']}")
-            print(f"姿态四元数 (rx, ry, rz, w): {tool_pose['quaternion']}")
-            print("\n工具相对于基坐标系的位姿矩阵 T_0_tool:")
-            print(T_0_tool)
-            print(f"\n工具位置相对于基坐标系 (x, y, z) in mm: [{position[0]:.4f}, {position[1]:.4f}, {position[2]:.4f}]")
-            print(f"\n工具姿态相对于基坐标系 (四元数 rx, ry, rz, w): [{quaternion[0]:.4f}, {quaternion[1]:.4f}, {quaternion[2]:.4f}, {quaternion[3]:.4f}]")
-            print("\n工具姿态相对于基坐标系 (旋转矩阵):")
-            print(rotation_matrix)
-        
-        return {
-            'valid': True,
-            'error_msg': '',
-            'transform_matrix': T_0_tool,
-            'position': position,
-            'rotation_matrix': rotation_matrix,
-            'quaternion': quaternion
-        }
-    
-    def get_tool_pose_in_tracker(self, q_deg, verbose=False):
-        """
-        计算工具坐标系相对于激光跟踪仪坐标系的位姿
-        
-        Args:
-            q_deg (list): 关节角度列表 [q1, q2, q3, q4, q5, q6] 单位为度
-            verbose (bool): 是否打印详细计算过程，默认为False
-            
-        Returns:
-            dict: 包含以下键值:
-                - 'valid' (bool): 关节角度是否有效
-                - 'error_msg' (str): 错误信息（如果有）
-                - 'transform_matrix' (numpy.ndarray): 工具相对于激光跟踪仪的4x4变换矩阵
-                - 'position' (numpy.ndarray): 工具相对于激光跟踪仪的位置 [x, y, z]
-                - 'rotation_matrix' (numpy.ndarray): 工具相对于激光跟踪仪的3x3旋转矩阵
-                - 'quaternion' (numpy.ndarray): 工具相对于激光跟踪仪的姿态四元数 [rx, ry, rz, w]
-        """
-        # 首先计算工具相对于基座的位姿
-        tool_in_base_result = self.get_tool_pose_in_base(q_deg, verbose=False)
-        
-        if not tool_in_base_result['valid']:
-            return tool_in_base_result
-        
-        # 基座相对于激光跟踪仪的位姿
-        base_in_tracker = {
-            'position': np.array([3030.3058, 2941.3799, 141.4515]),  # 单位: mm
-            'quaternion': np.array([0.0011, -0.009, 0.7192, -0.6948])  # rx, ry, rz, w
-        }
-        
-        # 从四元数创建旋转矩阵
-        tracker_quat = base_in_tracker['quaternion']
-        tracker_rotation = Rotation.from_quat([tracker_quat[0], tracker_quat[1], tracker_quat[2], tracker_quat[3]])
-        tracker_rot_matrix = tracker_rotation.as_matrix()
-        
-        # 创建基座相对于激光跟踪仪的变换矩阵
-        T_tracker_base = np.eye(4)
-        T_tracker_base[0:3, 0:3] = tracker_rot_matrix
-        T_tracker_base[0:3, 3] = base_in_tracker['position']
-        
-        # 计算工具相对于激光跟踪仪的位姿：T_tracker_tool = T_tracker_base * T_base_tool
-        T_base_tool = tool_in_base_result['transform_matrix']
-        T_tracker_tool = np.dot(T_tracker_base, T_base_tool)
-        
-        # 提取位置和旋转
-        position = T_tracker_tool[0:3, 3]
-        rotation_matrix = T_tracker_tool[0:3, 0:3]
-        
-        # 计算四元数
-        r = Rotation.from_matrix(rotation_matrix)
-        quaternion = r.as_quat()  # [x, y, z, w]
-        
-        if verbose:
-            print("\n--- 工具坐标系相对于激光跟踪仪的位姿 ---")
-            print("\n基座相对于激光跟踪仪的位姿:")
-            print(f"位置 (x, y, z) in mm: {base_in_tracker['position']}")
-            print(f"姿态四元数 (rx, ry, rz, w): {base_in_tracker['quaternion']}")
-            print("\n工具相对于激光跟踪仪的位姿矩阵 T_tracker_tool:")
-            print(T_tracker_tool)
-            print(f"\n工具位置相对于激光跟踪仪 (x, y, z) in mm: [{position[0]:.4f}, {position[1]:.4f}, {position[2]:.4f}]")
-            print(f"\n工具姿态相对于激光跟踪仪 (四元数 rx, ry, rz, w): [{quaternion[0]:.4f}, {quaternion[1]:.4f}, {quaternion[2]:.4f}, {quaternion[3]:.4f}]")
-            print("\n工具姿态相对于激光跟踪仪 (旋转矩阵):")
-            print(rotation_matrix)
-        
-        return {
-            'valid': True,
-            'error_msg': '',
-            'transform_matrix': T_tracker_tool,
-            'position': position,
-            'rotation_matrix': rotation_matrix,
-            'quaternion': quaternion
-        }
-
-
-# 示例用法
-if __name__ == "__main__":
     # 创建机器人对象
     robot = RokaeRobot()
     
-    # 设置关节角度
-    q_deg = [2.636115843805,29.5175455057437,6.10038158777613,34.7483282137072,-47.3762053517954,35.7916251381285]  # [q1, q2, q3, q4, q5, q6]
+    # 工具相对于末端法兰的位姿定义
+    tool_position = [1.081, 1.1316, 97.2485]  # 单位: mm
+    tool_quaternion = [0.5003, 0.5012, 0.5002, 0.4983]  # 四元数 [x, y, z, w]
     
-    print("\n=== 末端位姿计算 ===")
-    # 计算正运动学并打印详细过程
-    result = robot.forward_kinematics(q_deg, verbose=True)
+    # 创建工具变换矩阵
+    def quaternion_to_rotation_matrix(q):
+        """四元数转旋转矩阵"""
+        x, y, z, w = q
+        return np.array([
+            [1-2*y*y-2*z*z, 2*x*y-2*z*w, 2*x*z+2*y*w],
+            [2*x*y+2*z*w, 1-2*x*x-2*z*z, 2*y*z-2*x*w],
+            [2*x*z-2*y*w, 2*y*z+2*x*w, 1-2*x*x-2*y*y]
+        ])
     
-    print("\n\n=== 工具相对于基座的位姿计算 ===")
-    # 计算工具位姿并打印详细过程
-    tool_result = robot.get_tool_pose_in_base(q_deg, verbose=True)
+    def rotation_matrix_to_euler_angles(R):
+        """旋转矩阵转欧拉角 (ZYX顺序，单位:度)"""
+        sy = np.sqrt(R[0, 0] * R[0, 0] + R[1, 0] * R[1, 0])
+        singular = sy < 1e-6
+        
+        if not singular:
+            x = np.arctan2(R[2, 1], R[2, 2])
+            y = np.arctan2(-R[2, 0], sy)
+            z = np.arctan2(R[1, 0], R[0, 0])
+        else:
+            x = np.arctan2(-R[1, 2], R[1, 1])
+            y = np.arctan2(-R[2, 0], sy)
+            z = 0
+            
+        return np.array([z, y, x]) * 180 / np.pi  # 转换为度
     
-    print("\n\n=== 工具相对于激光跟踪仪的位姿计算 ===")
-    # 计算工具相对于激光跟踪仪的位姿
-    tracker_result = robot.get_tool_pose_in_tracker(q_deg, verbose=True)
+    # 创建工具变换矩阵
+    tool_rotation = quaternion_to_rotation_matrix(tool_quaternion)
+    tool_transform = np.eye(4)
+    tool_transform[:3, :3] = tool_rotation
+    tool_transform[:3, 3] = tool_position
+    
+    # 测试用的关节角度列表
+    test_angles = [
+        [42.91441824 , -0.414388123 , 49.04196013 , -119.3252973 , 78.65535552 , -5.225972875],  # 样例1
+        [26.18229564 , 47.10895029 , 20.44052241 , -143.5911443 , 87.23868486 , -6.971798826],   # 样例2
+        [2.220422813 , -1.47124169 , 42.49735792 , 7.258371315 , -50.66180738 , -154.8039343], # 样例3
+        [-27.15330845 , 27.1695025 , 7.237915975 , -59.0302648 , -67.29938775 , -105.5208513]   # 样例4
+    ]
+    
+    # 计算并显示结果
+    for i, angles in enumerate(test_angles):
+        print(f"\n测试样例 {i+1}:")
+        print(f"关节角度: {format_joint_angles(angles)}")
+        
+        # 计算正运动学
+        result = robot.forward_kinematics(angles)
+        
+        if result['valid']:    
+            # 计算工具位姿
+            print("\n工具位姿计算:")
+            
+            # 获取末端法兰相对于基座的变换矩阵
+            flange_transform = np.eye(4)
+            flange_transform[:3, :3] = result['rotation_matrix']
+            flange_transform[:3, 3] = result['position']
+            
+            # 计算工具相对于基座的变换矩阵
+            tool_base_transform = np.dot(flange_transform, tool_transform)
+            
+            # 提取工具相对于基座的位置
+            tool_base_position = tool_base_transform[:3, 3]
+            print(f"工具位置: {format_position(tool_base_position)} mm")
+            
+            # 计算欧拉角
+            tool_base_euler = rotation_matrix_to_euler_angles(tool_base_transform[:3, :3])
+            print(f"工具姿态 (ZYX欧拉角): [{tool_base_euler[0]:.4f}, {tool_base_euler[1]:.4f}, {tool_base_euler[2]:.4f}] 度")
+        else:
+            print(f"计算失败: {result['error_msg']}")
 
+def test_dh_parameters():
+    """测试不同DH参数的效果"""
+    print("\n============= DH参数测试 =============")
+    
+    # 创建机器人对象
+    robot = RokaeRobot()
+    
+    # 显示原始DH参数
+    print("原始DH参数:")
+    for i, params in enumerate(robot.modified_dh_params):
+        print(f"连杆 {i+1}: [theta_offset={params[0]:.2f}, d={params[1]:.2f}, alpha={params[2]:.2f}, a={params[3]:.2f}]")
+    
+    # 一组固定的关节角度用于比较
+    test_angle = [0, 0, 0, 0, 0, 0]
+    
+    # 计算原始参数下的末端位置
+    original_result = robot.forward_kinematics(test_angle)
+    print(f"\n零位姿态下末端位置: {format_position(original_result['position'])} mm")
+    
+    # 添加工具位姿计算
+    print("\n============= 工具位姿计算 =============")
+    
+    # 工具相对于末端法兰的位姿
+    tool_position = [1.081, 1.1316, 97.2485]  # 单位: mm
+    tool_quaternion = [0.5003, 0.5012, 0.5002, 0.4983]  # 四元数 [x, y, z, w]
+    
+    # 创建工具变换矩阵
+    def quaternion_to_rotation_matrix(q):
+        """四元数转旋转矩阵"""
+        x, y, z, w = q
+        return np.array([
+            [1-2*y*y-2*z*z, 2*x*y-2*z*w, 2*x*z+2*y*w],
+            [2*x*y+2*z*w, 1-2*x*x-2*z*z, 2*y*z-2*x*w],
+            [2*x*z-2*y*w, 2*y*z+2*x*w, 1-2*x*x-2*y*y]
+        ])
+    
+    # 创建工具变换矩阵
+    tool_rotation = quaternion_to_rotation_matrix(tool_quaternion)
+    tool_transform = np.eye(4)
+    tool_transform[:3, :3] = tool_rotation
+    tool_transform[:3, 3] = tool_position
+    
+    print("工具相对于末端法兰的变换矩阵:")
+    print(np.array2string(tool_transform, precision=4, suppress_small=True))
+    
+    # 获取末端法兰相对于基座的变换矩阵
+    flange_transform = np.eye(4)
+    flange_transform[:3, :3] = original_result['rotation_matrix']
+    flange_transform[:3, 3] = original_result['position']
+    
+    print("\n末端法兰相对于基座的变换矩阵:")
+    print(np.array2string(flange_transform, precision=4, suppress_small=True))
+    
+    # 计算工具相对于基座的变换矩阵
+    tool_base_transform = np.dot(flange_transform, tool_transform)
+    
+    print("\n工具相对于基座的变换矩阵:")
+    print(np.array2string(tool_base_transform, precision=4, suppress_small=True))
+    
+    # 提取工具相对于基座的位置
+    tool_base_position = tool_base_transform[:3, 3]
+    print(f"\n工具相对于基座的位置: {format_position(tool_base_position)} mm")
+    
+    # 从旋转矩阵提取欧拉角 (ZYX顺序)
+    def rotation_matrix_to_euler_angles(R):
+        """旋转矩阵转欧拉角 (ZYX顺序，单位:度)"""
+        sy = np.sqrt(R[0, 0] * R[0, 0] + R[1, 0] * R[1, 0])
+        singular = sy < 1e-6
+        
+        if not singular:
+            x = np.arctan2(R[2, 1], R[2, 2])
+            y = np.arctan2(-R[2, 0], sy)
+            z = np.arctan2(R[1, 0], R[0, 0])
+        else:
+            x = np.arctan2(-R[1, 2], R[1, 1])
+            y = np.arctan2(-R[2, 0], sy)
+            z = 0
+            
+        return np.array([z, y, x]) * 180 / np.pi  # 转换为度
+    
+    tool_base_euler = rotation_matrix_to_euler_angles(tool_base_transform[:3, :3])
+    print(f"工具相对于基座的姿态 (ZYX欧拉角): [{tool_base_euler[0]:.4f}, {tool_base_euler[1]:.4f}, {tool_base_euler[2]:.4f}] 度")
+
+if __name__ == "__main__":
+    # 测试正运动学计算
+    test_forward_kinematics()
+    
+    # 测试DH参数效果
+    test_dh_parameters()
