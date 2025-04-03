@@ -4,36 +4,54 @@
 提供 DH 参数边界设置与动态调整的各种函数，支持在优化过程中根据收敛情况自动调整边界范围。
 """
 
-import numpy as np
 
-def setup_adaptive_bounds(initial_params, scale_factor=1.0):
+# 全局参数配置
+# 连杆参数范围配置 - 用于确定哪些参数可以优化，哪些参数固定不变
+PARAM_RANGES = {
+    # 连杆索引: [theta_range, d_range, alpha_range, a_range]
+    # 注意: 参数范围为0.0表示该参数固定不变，大于0表示可以在范围内优化
+    1: [0.0, 0.0, 0.0, 0.0],  # 基座旋转 - 所有参数固定
+    2: [1.0, 1.0, 0.0, 1.0],  # 肩部关节 - alpha固定，其他可优化
+    3: [1.0, 1.0, 0.0, 1.0],  # 上臂 - alpha固定，其他可优化
+    4: [1.0, 1.0, 0.0, 1.0],  # 肘部关节 - alpha固定，其他可优化
+    5: [1.0, 1.0, 0.0, 1.0],  # 腕部关节 - alpha固定，其他可优化
+    6: [0.0, 0.0, 0.0, 0.0],  # 末端关节 - 所有参数固定
+}
+
+# 优化配置
+# 边界设置配置
+INITIAL_SCALE = 1            # 初始边界缩放因子
+MIN_SCALE = 0.1                # 最小边界缩放因子
+ADJUSTMENT_RATE = 0.7          # 边界调整率
+BOUNDARY_ADJUSTMENT_INTERVALS = 20  # 边界调整间隔（迭代次数）
+
+# 误差权重
+POSITION_WEIGHT = 1.3          # 位置误差权重
+QUATERNION_WEIGHT_DE = 0.5     # 姿态误差权重（DE优化阶段）
+QUATERNION_WEIGHT_LM = 0.0     # 姿态误差权重（LM优化阶段）
+
+# 差分进化配置
+DE_CONFIG = {
+    'with_quaternions': {
+        'popsize': 50, 'maxiter': 100, 'F': 0.5, 'CR': 0.9,
+    },
+    'position_only': {
+        'popsize': 50, 'maxiter': 100, 'F': 0.5, 'CR': 0.9,
+    }
+}
+
+def setup_adaptive_bounds(initial_params, scale_factor=INITIAL_SCALE):
     """
     设置DH参数的优化边界，支持动态调整边界范围
     
     参数:
         initial_params: 初始DH参数
         scale_factor: 边界范围缩放因子(0-1之间)，用于动态调整边界
-        param_ranges: 参数范围配置字典
     
     返回:
         bounds: 参数边界列表
     """
     bounds = []
-    
-    # 使用提供的参数范围或默认范围
-    default_ranges = {
-        # 连杆索引: [theta_range, d_range, alpha_range, a_range]
-        # 注意: 参数范围为0.0表示该参数固定不变，大于0表示可以在范围内优化
-        1: [0.0, 0.0, 0.0, 0.0],  # 基座旋转 
-        2: [1.0, 1.0, 0.0, 1.0],  # 肩部关节 
-        3: [1.0, 1.0, 0.0, 1.0],  # 上臂 
-        4: [1.0, 1.0, 0.0, 1.0],  # 肘部关节 
-        5: [1.0, 1.0, 0.0, 1.0],  # 腕部关节 
-        6: [0.0, 0.0, 0.0, 0.0],  # 末端关节 
-    }
-    
-    # 使用配置文件中的参数范围或默认范围
-    base_ranges = default_ranges
     
     # 应用缩放因子
     for i in range(0, len(initial_params), 4):
@@ -46,8 +64,8 @@ def setup_adaptive_bounds(initial_params, scale_factor=1.0):
         a = initial_params[i+3]
         
         # 获取并应用缩放后的范围
-        if link_index in base_ranges:
-            ranges = base_ranges[link_index]
+        if link_index in PARAM_RANGES:
+            ranges = PARAM_RANGES[link_index]
             
             # 检查原始范围配置是否为0，确保只有明确设置为0的参数才被固定
             # 即使应用缩放因子后范围很小，只要原始配置不是0，也应该允许参数优化
@@ -172,7 +190,7 @@ def setup_adaptive_bounds(initial_params, scale_factor=1.0):
     return bounds
 
 
-def adjust_bounds_dynamically(params, prev_rmse, curr_rmse, bounds, min_scale=0.1, adjustment_rate=0.8):
+def adjust_bounds_dynamically(params, prev_rmse, curr_rmse, bounds, min_scale=MIN_SCALE, adjustment_rate=ADJUSTMENT_RATE):
     """
     根据优化进度动态调整参数边界
     
@@ -220,30 +238,3 @@ def adjust_bounds_dynamically(params, prev_rmse, curr_rmse, bounds, min_scale=0.
         # 固定参数保持不变
     
     return new_bounds
-
-
-# 默认参数配置
-DEFAULT_PARAM_RANGES = {
-    # 连杆索引: [theta_range, d_range, alpha_range, a_range]
-    # 注意: 参数范围为0.0表示该参数固定不变，大于0表示可以在范围内优化
-    1: [1.0, 1.0, 1.0, 1.0],  # 基座旋转 
-    2: [1.0, 1.0, 1.0, 1.0],  # 肩部关节 
-    3: [1.0, 1.0, 1.0, 1.0],  # 上臂 
-    4: [1.0, 1.0, 1.0, 1.0],  # 肘部关节 
-    5: [1.0, 1.0, 1.0, 1.0],  # 腕部关节 
-    6: [1.0, 1.0, 1.0, 1.0],  # 末端关节 
-}
-
-# 默认优化器配置
-INITIAL_SCALE = 1.0
-MIN_SCALE = 0.1
-ADJUSTMENT_RATE = 0.8
-BOUNDARY_ADJUSTMENT_INTERVALS = 20
-DE_CONFIG = {
-    'with_quaternions': {
-        'popsize': 50, 'maxiter': 120, 'F': 0.5, 'CR': 0.7,
-    },
-    'position_only': {
-        'popsize': 30, 'maxiter': 100, 'F': 0.5, 'CR': 0.9,
-    }
-}

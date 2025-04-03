@@ -39,9 +39,82 @@ def normalize_quaternion(q):
         return np.array([0, 0, 0, 1])  # 返回单位四元数
     return q / norm
 
+def quaternion_to_euler(q):
+    """
+    将四元数转换为欧拉角（ZYX顺序，即RPY - Roll, Pitch, Yaw）
+    
+    Args:
+        q: 四元数 [qx, qy, qz, qw]
+        
+    Returns:
+        numpy.ndarray: 欧拉角 [roll, pitch, yaw]（单位：弧度）
+    """
+    # 归一化四元数
+    q = normalize_quaternion(q)
+    qx, qy, qz, qw = q
+    
+    # 计算欧拉角
+    # Roll (x-axis rotation)
+    sinr_cosp = 2.0 * (qw * qx + qy * qz)
+    cosr_cosp = 1.0 - 2.0 * (qx * qx + qy * qy)
+    roll = np.arctan2(sinr_cosp, cosr_cosp)
+    
+    # Pitch (y-axis rotation)
+    sinp = 2.0 * (qw * qy - qz * qx)
+    if np.abs(sinp) >= 1:
+        pitch = np.copysign(np.pi / 2, sinp)  # 使用pi/2，如果sinp = ±1
+    else:
+        pitch = np.arcsin(sinp)
+    
+    # Yaw (z-axis rotation)
+    siny_cosp = 2.0 * (qw * qz + qx * qy)
+    cosy_cosp = 1.0 - 2.0 * (qy * qy + qz * qz)
+    yaw = np.arctan2(siny_cosp, cosy_cosp)
+    
+    return np.array([roll, pitch, yaw])
+
+def euler_angle_error(euler1, euler2):
+    """
+    计算两组欧拉角之间的误差
+    
+    Args:
+        euler1, euler2: 两组欧拉角 [roll, pitch, yaw]
+        
+    Returns:
+        numpy.ndarray: 每个轴的角度误差 [roll_err, pitch_err, yaw_err]
+    """
+    # 计算各轴角度差
+    error = euler1 - euler2
+    
+    # 将角度差映射到[-pi, pi]范围内
+    for i in range(3):
+        while error[i] > np.pi:
+            error[i] -= 2 * np.pi
+        while error[i] < -np.pi:
+            error[i] += 2 * np.pi
+    
+    return error
+
+def quaternion_angular_error_axes(q1, q2):
+    """
+    计算两个四元数之间在各轴上的角度误差
+    
+    Args:
+        q1, q2: 两个四元数 [qx, qy, qz, qw]
+        
+    Returns:
+        numpy.ndarray: 各轴角度误差 [roll_err, pitch_err, yaw_err]（单位：弧度）
+    """
+    # 将四元数转换为欧拉角
+    euler1 = quaternion_to_euler(q1)
+    euler2 = quaternion_to_euler(q2)
+    
+    # 计算欧拉角误差
+    return euler_angle_error(euler1, euler2)
+
 def quaternion_angular_error(q1, q2):
     """
-    计算两个四元数之间的角度误差（以弧度为单位）
+    计算两个四元数之间的总角度误差（以弧度为单位）
     
     Args:
         q1, q2: 两个四元数 [qx, qy, qz, qw]
@@ -88,7 +161,7 @@ def error_function(dh_params, joint_angles, measured_positions, measured_quatern
     
     # 计算误差向量的长度
     pos_error_length = n_samples * 3
-    quat_error_length = n_samples * 6 if measured_quaternions is not None else 0  # 增加四元数误差的维度
+    quat_error_length = n_samples * 3 if measured_quaternions is not None else 0  # 使用3维表示姿态误差
     total_error_length = pos_error_length + quat_error_length
     
     # 初始化误差数组
@@ -113,13 +186,13 @@ def error_function(dh_params, joint_angles, measured_positions, measured_quatern
             # 获取测量的四元数并归一化
             measured_quat = normalize_quaternion(measured_quaternions[i])
             
-            # 计算四元数角度误差（弧度）
-            angle_error = quaternion_angular_error(predicted_quat, measured_quat)
+            # 计算四元数在各轴上的角度误差（弧度）
+            axis_errors = quaternion_angular_error_axes(predicted_quat, measured_quat)
             
-            # 为了增加姿态误差的影响，将误差扩展为更高维向量
-            quat_error_vector = np.ones(6) * angle_error * quaternion_weight  # 从3维增加到6维
+            # 加权并存储角度误差（3个值，对应roll, pitch, yaw）
+            quat_error_vector = axis_errors * quaternion_weight
             
-            # 保存姿态角度误差（扩展为6个维度）
-            errors[pos_error_length + i*6:pos_error_length + (i+1)*6] = quat_error_vector
+            # 保存姿态角度误差（3个维度）
+            errors[pos_error_length + i*3:pos_error_length + (i+1)*3] = quat_error_vector
     
     return errors

@@ -13,14 +13,19 @@ from optimize.boundaries import (
     adjust_bounds_dynamically, 
     DE_CONFIG, 
     INITIAL_SCALE, 
-    MIN_SCALE, 
-    ADJUSTMENT_RATE, 
-    BOUNDARY_ADJUSTMENT_INTERVALS
+    BOUNDARY_ADJUSTMENT_INTERVALS,
+    POSITION_WEIGHT,
+    QUATERNION_WEIGHT_DE,
+    QUATERNION_WEIGHT_LM
 )
 
 
-# 使用默认配置
-print("默认参数边界配置：")
+# 打印系统设置信息
+print("使用参数优化配置:")
+print(f"- 位置误差权重: {POSITION_WEIGHT}")
+print(f"- 四元数误差权重 (DE): {QUATERNION_WEIGHT_DE}")
+print(f"- 四元数误差权重 (LM): {QUATERNION_WEIGHT_LM}")
+print(f"- 边界调整间隔: {BOUNDARY_ADJUSTMENT_INTERVALS} 次迭代")
 
 def main():
     """
@@ -29,27 +34,13 @@ def main():
     返回:
         tuple: (优化后的DH参数, 最终RMSE误差) 或 (None, None)（如果发生错误）
     """
-    # ====================== 可调参数配置 ======================
-
-    
+    # ====================== 数据文件配置 ======================
     data_file = 'data.txt'  # 数据文件路径
-    
     result_dir = 'result'
     result_file = f'{result_dir}/optimized_dh_params.txt'
     
-    # 权重配置
-    position_weight = 1.3      # 位置误差权重
-    quaternion_weight = 0.0    # 姿态误差权重（DE优化阶段）
-    quaternion_weight_lm = 0.0 # 姿态误差权重（LM优化阶段）
-    
-    # 使用配置文件中的边界调整配置
-    initial_scale = INITIAL_SCALE        # 初始边界缩放因子
-    min_scale = MIN_SCALE                # 最小边界缩放因子
-    dynamic_bounds = True            # 是否使用动态边界调整
-    boundary_adjustment_intervals = BOUNDARY_ADJUSTMENT_INTERVALS
-    
-    # 使用配置文件中的DE优化器配置
-    de_config = DE_CONFIG
+    # 是否使用动态边界调整
+    dynamic_bounds = True
     # ==========================================================
     
     try:
@@ -60,7 +51,7 @@ def main():
         if not os.path.exists(data_file):
             print(f"错误: 找不到数据文件 '{data_file}'")
             print(f"当前工作目录: {os.getcwd()}")
-            print("请确保数据文件(data.txt 或 dat_local.txt)存在于当前目录")
+            print("请确保数据文件(data.txt 或 data_local.txt)存在于当前目录")
             return None, None
         
         print(f"使用数据文件: {data_file}")
@@ -72,12 +63,12 @@ def main():
                 joint_angles, measured_positions, measured_quaternions = data
                 print(f"加载了 {len(joint_angles)} 组样本数据，包含位置和姿态四元数")
                 use_quaternions = True
-                de_params = de_config['with_quaternions']
+                de_params = DE_CONFIG['with_quaternions']
             else:
                 joint_angles, measured_positions = data
                 measured_quaternions = None
                 use_quaternions = False
-                de_params = de_config['position_only']
+                de_params = DE_CONFIG['position_only']
                 print(f"加载了 {len(joint_angles)} 组样本数据（仅包含位置数据）")
         except Exception as e:
             print(f"加载数据时出错: {e}")
@@ -99,8 +90,8 @@ def main():
                 joint_angles, 
                 measured_positions, 
                 measured_quaternions=measured_quaternions,
-                position_weight=position_weight, 
-                quaternion_weight=quaternion_weight
+                position_weight=POSITION_WEIGHT, 
+                quaternion_weight=QUATERNION_WEIGHT_DE
             )
             # 添加检查
             if any(np.isnan(initial_errors)):
@@ -116,7 +107,7 @@ def main():
         print(f"初始RMSE: {initial_rmse:.6f}")
         
         # 设置参数优化边界
-        bounds = setup_adaptive_bounds(initial_dh_params, initial_scale)
+        bounds = setup_adaptive_bounds(initial_dh_params, INITIAL_SCALE)
         
         # 第一阶段：使用DE算法进行全局搜索
         print("\n开始DE全局优化...")
@@ -130,7 +121,7 @@ def main():
             # 定义动态优化过程的回调函数
             def de_callback(xk, convergence):
                 """每次迭代后的回调函数"""
-                nonlocal bounds, de_history, de_params, initial_rmse, boundary_adjustment_intervals, min_scale
+                nonlocal bounds, de_history, de_params, initial_rmse
                 
                 # 计算当前迭代次数
                 iteration = len(de_history['fitness']) - 1 if 'fitness' in de_history and len(de_history['fitness']) > 0 else 0
@@ -139,7 +130,7 @@ def main():
                 current_best = de_history['fitness'][-1] if 'fitness' in de_history and de_history['fitness'] else float('inf')
                 
                 # 仅在特定迭代时调整边界，其他时候不做任何修改
-                if iteration > 0 and iteration % boundary_adjustment_intervals == 0:
+                if iteration > 0 and iteration % BOUNDARY_ADJUSTMENT_INTERVALS == 0:
                     # 获取前一次的适应度值，确保索引有效
                     prev_best = de_history['fitness'][-2] if len(de_history['fitness']) >= 2 else initial_rmse
                     
@@ -154,9 +145,9 @@ def main():
                     # 使用专门的边界调整函数，确保正确传递前一次和当前的适应度值
                     if abs(prev_best - current_best) < 1e-10:
                         # 如果适应度没有变化，添加一个微小差值以避免改善率为0
-                        new_bounds = adjust_bounds_dynamically(xk, prev_best, prev_best * 0.9999, bounds, min_scale)
+                        new_bounds = adjust_bounds_dynamically(xk, prev_best, prev_best * 0.9999, bounds)
                     else:
-                        new_bounds = adjust_bounds_dynamically(xk, prev_best, current_best, bounds, min_scale)
+                        new_bounds = adjust_bounds_dynamically(xk, prev_best, current_best, bounds)
                     
                     bounds = new_bounds
                     
@@ -178,8 +169,8 @@ def main():
                     F=de_params['F'],
                     CR=de_params['CR'],
                     measured_quaternions=measured_quaternions,
-                    position_weight=position_weight,
-                    quaternion_weight=quaternion_weight,
+                    position_weight=POSITION_WEIGHT,
+                    quaternion_weight=QUATERNION_WEIGHT_DE,
                     callback=de_callback,
                     history=de_history
                 )
@@ -209,8 +200,8 @@ def main():
                     F=de_params['F'],
                     CR=de_params['CR'],
                     measured_quaternions=measured_quaternions,
-                    position_weight=position_weight,
-                    quaternion_weight=quaternion_weight
+                    position_weight=POSITION_WEIGHT,
+                    quaternion_weight=QUATERNION_WEIGHT_DE
                 )
             else:
                 de_optimized_params, de_fitness, de_history = differential_evolution(
@@ -249,8 +240,8 @@ def main():
                     error_function, 
                     local_bounds,  # 使用针对局部优化的更窄边界
                     measured_quaternions=measured_quaternions,
-                    position_weight=position_weight,
-                    quaternion_weight=quaternion_weight_lm
+                    position_weight=POSITION_WEIGHT,
+                    quaternion_weight=QUATERNION_WEIGHT_LM
                 )
             else:
                 final_params, final_rmse = optimize_with_lm(
