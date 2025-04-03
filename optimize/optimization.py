@@ -131,7 +131,7 @@ def optimize_with_lm(initial_params, joint_angles, measured_positions, error_fun
 
 # 保留这个版本的differential_evolution函数，它支持动态边界调整
 def differential_evolution(func, bounds, *args, popsize=15, maxiter=100, F=0.5, CR=0.7, 
-                           seed=None, callback=None, measured_quaternions=None, 
+                           seed=42, callback=None, measured_quaternions=None, 
                            position_weight=1.0, quaternion_weight=0.0, history=None):
     """
     自定义的差分进化算法实现，支持动态调整参数边界
@@ -144,7 +144,7 @@ def differential_evolution(func, bounds, *args, popsize=15, maxiter=100, F=0.5, 
         maxiter: 最大迭代次数
         F: 变异因子
         CR: 交叉概率
-        seed: 随机种子
+        seed: 随机种子，默认为42以确保结果可重复
         callback: 回调函数，接收最佳个体和收敛值
         measured_quaternions: 测量的四元数数据
         position_weight: 位置误差权重
@@ -161,8 +161,9 @@ def differential_evolution(func, bounds, *args, popsize=15, maxiter=100, F=0.5, 
     if history is None:
         history = {'fitness': [], 'best_x': []}
     
-    # 设置随机种子
+    # 设置随机种子以确保结果可重复
     if seed is not None:
+        print(f"设置随机种子: {seed}")
         np.random.seed(seed)
         random.seed(seed)
     

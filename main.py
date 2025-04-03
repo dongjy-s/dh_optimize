@@ -1,6 +1,7 @@
 import os
 import traceback
 import numpy as np
+import random
 
 from optimize.forward_kinematics import RokaeRobot
 from optimize.utils import ensure_dir, print_dh_params, calculate_param_changes, setup_bounds, rmse
@@ -16,16 +17,23 @@ from optimize.boundaries import (
     BOUNDARY_ADJUSTMENT_INTERVALS,
     POSITION_WEIGHT,
     QUATERNION_WEIGHT_DE,
-    QUATERNION_WEIGHT_LM
+    QUATERNION_WEIGHT_LM,
+    QUATERNION_WEIGHT_TRANSITION,
+    QUATERNION_TRANSITION_STEPS
 )
 
+# 固定随机种子以确保结果可重复
+RANDOM_SEED = 42
 
 # 打印系统设置信息
 print("使用参数优化配置:")
 print(f"- 位置误差权重: {POSITION_WEIGHT}")
 print(f"- 四元数误差权重 (DE): {QUATERNION_WEIGHT_DE}")
 print(f"- 四元数误差权重 (LM): {QUATERNION_WEIGHT_LM}")
+if QUATERNION_WEIGHT_TRANSITION:
+    print(f"- 启用姿态权重平滑过渡: {QUATERNION_TRANSITION_STEPS}步")
 print(f"- 边界调整间隔: {BOUNDARY_ADJUSTMENT_INTERVALS} 次迭代")
+print(f"- 随机种子: {RANDOM_SEED}")
 
 def main():
     """
@@ -168,6 +176,7 @@ def main():
                     maxiter=de_params['maxiter'],
                     F=de_params['F'],
                     CR=de_params['CR'],
+                    seed=RANDOM_SEED,  # 添加固定种子
                     measured_quaternions=measured_quaternions,
                     position_weight=POSITION_WEIGHT,
                     quaternion_weight=QUATERNION_WEIGHT_DE,
@@ -184,6 +193,7 @@ def main():
                     maxiter=de_params['maxiter'], 
                     F=de_params['F'], 
                     CR=de_params['CR'],
+                    seed=RANDOM_SEED,  # 添加固定种子
                     callback=de_callback,
                     history=de_history
                 )
@@ -199,6 +209,7 @@ def main():
                     maxiter=de_params['maxiter'],
                     F=de_params['F'],
                     CR=de_params['CR'],
+                    seed=RANDOM_SEED,  # 添加固定种子
                     measured_quaternions=measured_quaternions,
                     position_weight=POSITION_WEIGHT,
                     quaternion_weight=QUATERNION_WEIGHT_DE
@@ -212,7 +223,8 @@ def main():
                     popsize=de_params['popsize'], 
                     maxiter=de_params['maxiter'], 
                     F=de_params['F'], 
-                    CR=de_params['CR']
+                    CR=de_params['CR'],
+                    seed=RANDOM_SEED  # 添加固定种子
                 )
         
         print_dh_params(de_optimized_params, "DE优化")
@@ -230,32 +242,81 @@ def main():
         else:
             local_bounds = setup_adaptive_bounds(de_optimized_params)
         
-        # 第二阶段：使用LM算法进行局部优化
-        try:
-            if use_quaternions:
-                final_params, final_rmse = optimize_with_lm(
-                    de_optimized_params, 
-                    joint_angles, 
-                    measured_positions, 
-                    error_function, 
-                    local_bounds,  # 使用针对局部优化的更窄边界
-                    measured_quaternions=measured_quaternions,
-                    position_weight=POSITION_WEIGHT,
-                    quaternion_weight=QUATERNION_WEIGHT_LM
-                )
-            else:
-                final_params, final_rmse = optimize_with_lm(
-                    de_optimized_params, 
-                    joint_angles, 
-                    measured_positions, 
-                    error_function, 
-                    local_bounds  # 使用针对局部优化的更窄边界
-                )
-        except Exception as e:
-            print(f"LM优化时出错: {e}")
-            traceback.print_exc()
-            print("将使用DE优化结果作为最终结果")
-            final_params, final_rmse = de_optimized_params, de_fitness
+        # 平滑过渡姿态权重
+        if use_quaternions and QUATERNION_WEIGHT_TRANSITION:
+            # 计算从DE到LM阶段的姿态权重序列
+            quat_weights = np.linspace(QUATERNION_WEIGHT_DE, QUATERNION_WEIGHT_LM, QUATERNION_TRANSITION_STEPS + 1)
+            
+            # 显示姿态权重过渡序列
+            weights_str = ", ".join([f"{w:.3f}" for w in quat_weights])
+            print(f"\n使用姿态权重平滑过渡: [{weights_str}]")
+            
+            # 保存当前优化参数，用于多阶段优化
+            transition_params = de_optimized_params.copy()
+            transition_rmse = de_fitness
+            
+            # 逐步过渡优化
+            for step, quat_weight in enumerate(quat_weights[1:], 1):  # 跳过第一个(DE阶段已使用)
+                print(f"\n[过渡优化 {step}/{QUATERNION_TRANSITION_STEPS}] 姿态权重: {quat_weight:.3f}")
+                
+                try:
+                    step_params, step_rmse = optimize_with_lm(
+                        transition_params,  # 使用上一步的结果
+                        joint_angles, 
+                        measured_positions, 
+                        error_function, 
+                        local_bounds,
+                        measured_quaternions=measured_quaternions,
+                        position_weight=POSITION_WEIGHT,
+                        quaternion_weight=quat_weight
+                    )
+                    
+                    print(f"过渡步骤 {step} 完成，RMSE: {step_rmse:.6f}")
+                    
+                    # 只有当结果更好时才更新参数
+                    if step_rmse < transition_rmse:
+                        transition_params = step_params
+                        transition_rmse = step_rmse
+                    else:
+                        print(f"过渡步骤 {step} 未能改善结果，保留之前的参数")
+                        
+                except Exception as e:
+                    print(f"过渡优化步骤 {step} 出错: {e}")
+                    # 继续下一步，使用之前的参数
+            
+            # 过渡优化后的结果作为最终结果
+            final_params = transition_params
+            final_rmse = transition_rmse
+            
+            print(f"\n过渡优化完成，最终RMSE: {final_rmse:.6f} mm")
+            
+        else:
+            # 如果不使用平滑过渡，则直接进行LM优化
+            try:
+                if use_quaternions:
+                    final_params, final_rmse = optimize_with_lm(
+                        de_optimized_params, 
+                        joint_angles, 
+                        measured_positions, 
+                        error_function, 
+                        local_bounds,  # 使用针对局部优化的更窄边界
+                        measured_quaternions=measured_quaternions,
+                        position_weight=POSITION_WEIGHT,
+                        quaternion_weight=QUATERNION_WEIGHT_LM
+                    )
+                else:
+                    final_params, final_rmse = optimize_with_lm(
+                        de_optimized_params, 
+                        joint_angles, 
+                        measured_positions, 
+                        error_function, 
+                        local_bounds  # 使用针对局部优化的更窄边界
+                    )
+            except Exception as e:
+                print(f"LM优化时出错: {e}")
+                traceback.print_exc()
+                print("将使用DE优化结果作为最终结果")
+                final_params, final_rmse = de_optimized_params, de_fitness
 
         print_dh_params(final_params, "最终优化")
         print(f"最终优化后RMSE: {final_rmse:.6f} mm")
@@ -296,4 +357,7 @@ def main():
 
 
 if __name__ == "__main__":
+    # 固定numpy的随机种子以确保结果可重复
+    np.random.seed(RANDOM_SEED)
+    random.seed(RANDOM_SEED)
     main()
