@@ -22,12 +22,12 @@ except ImportError:
     PARAM_RANGES = {
         # 连杆索引: [theta_range, d_range, alpha_range, a_range]
         # 注意: 参数范围为0.0表示该参数固定不变，大于0表示可以在范围内优化
-        1: [0.0, 0.0, 0.0, 0.0],  # 基座旋转 - 全部参数固定
-        2: [1.0, 1.0, 0.0, 1.0],  # 肩部关节 - 固定alpha，优化其他
-        3: [1.0, 1.0, 0.0, 1.0],  # 上臂 - 固定alpha，优化其他
-        4: [1.0, 1.0, 0.0, 1.0],  # 肘部关节 - 固定alpha，优化其他
-        5: [1.0, 1.0, 0.0, 1.0],  # 腕部关节 - 固定alpha，优化其他
-        6: [0.0, 0.0, 0.0, 0.0],  # 末端关节 - 全部参数固定
+        1: [1.0, 1.0, 1.0, 1.0],  # 基座旋转 
+        2: [1.0, 1.0, 1.0, 1.0],  # 肩部关节 
+        3: [1.0, 1.0, 1.0, 1.0],  # 上臂 
+        4: [1.0, 1.0, 1.0, 1.0],  # 肘部关节 
+        5: [1.0, 1.0, 1.0, 1.0],  # 腕部关节 
+        6: [1.0, 1.0, 1.0, 1.0],  # 末端关节 
     }
     INITIAL_SCALE = 1.0
     MIN_SCALE = 0.1
@@ -73,32 +73,45 @@ def setup_adaptive_bounds(initial_params, scale_factor=1.0, param_ranges=None):
         if link_index in base_ranges:
             ranges = base_ranges[link_index]
             
-            # 设置参数范围，如果范围为0则固定参数
+            # 检查原始范围配置是否为0，确保只有明确设置为0的参数才被固定
+            # 即使应用缩放因子后范围很小，只要原始配置不是0，也应该允许参数优化
+            theta_is_fixed = abs(ranges[0]) < 1e-10  # 判断原始配置是否为0
+            d_is_fixed = abs(ranges[1]) < 1e-10
+            alpha_is_fixed = abs(ranges[2]) < 1e-10
+            a_is_fixed = abs(ranges[3]) < 1e-10
+            
+            # 应用缩放因子计算实际范围
             theta_range = ranges[0] * scale_factor
             d_range = ranges[1] * scale_factor
             alpha_range = ranges[2] * scale_factor
             a_range = ranges[3] * scale_factor
             
-            # 对每个参数单独处理，确保范围为0的参数被固定
-            if abs(theta_range) < 1e-10:  # 使用小阈值判断是否为0
+            # 根据原始配置决定是否固定参数，而不是根据缩放后的范围
+            if theta_is_fixed:
                 bounds.append((theta_offset, theta_offset))  # 固定参数
             else:
-                bounds.append((theta_offset - theta_range, theta_offset + theta_range))
+                # 确保范围有效，即使很小也保持上下界不同
+                min_range = 1e-6  # 最小有效范围，避免数值精度问题
+                actual_range = max(theta_range, min_range)
+                bounds.append((theta_offset - actual_range, theta_offset + actual_range))
                 
-            if abs(d_range) < 1e-10:
+            if d_is_fixed:
                 bounds.append((d, d))  # 固定参数
             else:
-                bounds.append((d - d_range, d + d_range))
+                actual_range = max(d_range, min_range)
+                bounds.append((d - actual_range, d + actual_range))
                 
-            if abs(alpha_range) < 1e-10:
+            if alpha_is_fixed:
                 bounds.append((alpha, alpha))  # 固定参数
             else:
-                bounds.append((alpha - alpha_range, alpha + alpha_range))
+                actual_range = max(alpha_range, min_range)
+                bounds.append((alpha - actual_range, alpha + actual_range))
                 
-            if abs(a_range) < 1e-10:
+            if a_is_fixed:
                 bounds.append((a, a))  # 固定参数
             else:
-                bounds.append((a - a_range, a + a_range))
+                actual_range = max(a_range, min_range)
+                bounds.append((a - actual_range, a + actual_range))
         else:
             # 如果没有指定范围，使用默认参数（固定不变）
             bounds.append((theta_offset, theta_offset))
@@ -114,8 +127,10 @@ def setup_adaptive_bounds(initial_params, scale_factor=1.0, param_ranges=None):
             mean_val = (lower + upper) / 2
             bounds[i] = (mean_val - 1e-5, mean_val + 1e-5)
     
-    # 打印边界设置以便调试
-    print(f"\n参数优化边界 (缩放因子={scale_factor:.3f}):")
+    # 打印边界设置以便调试，改进输出格式
+    print(f"\n{'='*60}")
+    print(f"参数优化边界 (缩放因子={scale_factor:.3f})")
+    print(f"{'='*60}")
     
     # 检查并显示每个参数的固定状态
     fixed_params = []
@@ -137,13 +152,46 @@ def setup_adaptive_bounds(initial_params, scale_factor=1.0, param_ranges=None):
         
         link_param_status[link_index] = status
     
-    # 打印每个连杆的参数状态
+    # 打印每个连杆的参数状态，使用更美观的格式
     for link_idx, status in sorted(link_param_status.items()):
-        print(f"Link {link_idx}: {', '.join(status)}")
-        print(f"  theta_offset={bounds[link_idx*4-4]}")
-        print(f"  d={bounds[link_idx*4-3]}")
-        print(f"  alpha={bounds[link_idx*4-2]}")
-        print(f"  a={bounds[link_idx*4-1]}")
+        print(f"\n【连杆 {link_idx}】 {', '.join(status)}")
+        
+        # 获取当前连杆的四个参数边界
+        theta_bound = bounds[link_idx*4-4]
+        d_bound = bounds[link_idx*4-3]
+        alpha_bound = bounds[link_idx*4-2]
+        a_bound = bounds[link_idx*4-1]
+        
+        # 使用表格样式格式化输出
+        print(f"  {'参数':<10} {'下界':<12} {'上界':<12}")
+        print(f"  {'-'*34}")
+        
+        # 根据参数是否固定使用不同的格式显示边界
+        # theta参数
+        if abs(theta_bound[1] - theta_bound[0]) < 1e-10:  # 固定参数
+            print(f"  {'theta':<10} {theta_bound[0]:<12.3f} {'(固定)':<12}")
+        else:
+            print(f"  {'theta':<10} {theta_bound[0]:<12.3f} {theta_bound[1]:<12.3f}")
+        
+        # d参数
+        if abs(d_bound[1] - d_bound[0]) < 1e-10:  # 固定参数
+            print(f"  {'d':<10} {d_bound[0]:<12.3f} {'(固定)':<12}")
+        else:
+            print(f"  {'d':<10} {d_bound[0]:<12.3f} {d_bound[1]:<12.3f}")
+        
+        # alpha参数
+        if abs(alpha_bound[1] - alpha_bound[0]) < 1e-10:  # 固定参数
+            print(f"  {'alpha':<10} {alpha_bound[0]:<12.3f} {'(固定)':<12}")
+        else:
+            print(f"  {'alpha':<10} {alpha_bound[0]:<12.3f} {alpha_bound[1]:<12.3f}")
+        
+        # a参数
+        if abs(a_bound[1] - a_bound[0]) < 1e-10:  # 固定参数
+            print(f"  {'a':<10} {a_bound[0]:<12.3f} {'(固定)':<12}")
+        else:
+            print(f"  {'a':<10} {a_bound[0]:<12.3f} {a_bound[1]:<12.3f}")
+    
+    print(f"\n{'='*60}")
     
     return bounds
 
@@ -183,14 +231,17 @@ def adjust_bounds_dynamically(params, prev_rmse, curr_rmse, bounds, min_scale=0.
     
     # 对每个参数调整边界，向当前参数值收缩
     for i, (lower, upper) in enumerate(bounds):
-        param_value = params[i]
-        # 计算新边界，向当前参数值收缩
-        new_range = (upper - lower) * scale_factor / 2
-        new_bounds[i] = (param_value - new_range, param_value + new_range)
-        
-        # 确保边界有效
-        if new_bounds[i][0] >= new_bounds[i][1]:
-            new_bounds[i] = (param_value - 1e-5, param_value + 1e-5)
+        # 只调整非固定参数的边界
+        if abs(upper - lower) > 1e-10:  # 非固定参数
+            param_value = params[i]
+            # 计算新边界，向当前参数值收缩
+            new_range = (upper - lower) * scale_factor / 2
+            new_bounds[i] = (param_value - new_range, param_value + new_range)
+            
+            # 确保边界有效
+            if new_bounds[i][0] >= new_bounds[i][1]:
+                new_bounds[i] = (param_value - 1e-5, param_value + 1e-5)
+        # 固定参数保持不变
     
     return new_bounds
 
@@ -204,7 +255,7 @@ def main():
     """
     # ====================== 可调参数配置 ======================
     # 数据文件配置
-    data_file = 'data.txt'
+    data_file = 'dat_local.txt' if os.path.exists('dat_local.txt') else 'data.txt'
     result_dir = 'result'
     result_file = f'{result_dir}/optimized_dh_params.txt'
     
@@ -228,12 +279,14 @@ def main():
         # 创建结果目录
         ensure_dir(result_dir)
         
-        # 加载数据文件
+        # 加载数据文件，增加更好的错误处理
         if not os.path.exists(data_file):
             print(f"错误: 找不到数据文件 '{data_file}'")
             print(f"当前工作目录: {os.getcwd()}")
-            print("请确保从正确的目录运行程序或提供正确的文件路径")
+            print("请确保数据文件(data.txt 或 dat_local.txt)存在于当前目录")
             return None, None
+        
+        print(f"使用数据文件: {data_file}")
         
         # 加载测量数据
         try:
