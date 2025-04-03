@@ -11,7 +11,7 @@ from optimize.validation import validate_optimization
 
 
  # 使用默认配置
-print("使用默认参数边界配置")
+print("默认参数边界配置：")
 PARAM_RANGES = {
     # 连杆索引: [theta_range, d_range, alpha_range, a_range]
     # 注意: 参数范围为0.0表示该参数固定不变，大于0表示可以在范围内优化
