@@ -20,23 +20,25 @@ PARAM_RANGES = {
 
 # 优化配置
 # 边界设置配置
-INITIAL_SCALE = 1            # 初始边界缩放因子
+INITIAL_SCALE = 1.1           # 初始边界缩放因子
 MIN_SCALE = 0.1                # 最小边界缩放因子
-ADJUSTMENT_RATE = 0.7          # 边界调整率
+ADJUSTMENT_RATE = 0.5          # 边界调整率
 BOUNDARY_ADJUSTMENT_INTERVALS = 20  # 边界调整间隔（迭代次数）
 
 # 误差权重
 POSITION_WEIGHT = 1.3          # 位置误差权重
-QUATERNION_WEIGHT_DE = 0.5     # 姿态误差权重（DE优化阶段）
-QUATERNION_WEIGHT_LM = 0.0     # 姿态误差权重（LM优化阶段）
+QUATERNION_WEIGHT_DE = 0.3     # 姿态误差权重（DE优化阶段开始）
+QUATERNION_WEIGHT_LM = 0.1     # 姿态误差权重（LM优化阶段）
+QUATERNION_WEIGHT_TRANSITION = True  # 是否启用姿态权重平滑过渡
+QUATERNION_TRANSITION_STEPS = 5      # 过渡步骤数
 
 # 差分进化配置
 DE_CONFIG = {
     'with_quaternions': {
-        'popsize': 50, 'maxiter': 100, 'F': 0.5, 'CR': 0.9,
+        'popsize': 50, 'maxiter': 120, 'F': 0.5, 'CR': 0.9,
     },
     'position_only': {
-        'popsize': 50, 'maxiter': 100, 'F': 0.5, 'CR': 0.9,
+        'popsize': 50, 'maxiter': 120, 'F': 0.5, 'CR': 0.9,
     }
 }
 
