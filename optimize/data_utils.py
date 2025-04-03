@@ -3,33 +3,33 @@ import numpy as np
 def load_data(filename):
     """加载测量数据
     
-    从data.txt文件中加载关节角度和末端位置数据，
-    文件格式包含关节角度部分和位置数据部分。
+    从data.txt文件中加载关节角度、末端位置数据和姿态四元数数据，
+    文件格式包含关节角度部分、位置数据部分和姿态四元数部分。
     
     Args:
         filename (str): 数据文件路径
     
     Returns:
-        tuple: 包含两个numpy数组，关节角度和对应的末端位置
+        tuple: 包含三个numpy数组，关节角度、对应的末端位置和姿态四元数
     """
     joint_angles = []
     measured_positions = []
+    measured_quaternions = []
     
     with open(filename, 'r', encoding='utf-8') as f:
         lines = f.readlines()
         
-        # 查找分隔符的位置
-        separator_index = -1
+        # 查找两个分隔符的位置
+        separator_indices = []
         for i, line in enumerate(lines):
             if line.strip() == "--------":
-                separator_index = i
-                break
+                separator_indices.append(i)
         
-        if separator_index == -1:
+        if len(separator_indices) < 1:
             raise ValueError("无法在文件中找到分隔符 '--------'")
         
         # 提取关节角度（跳过第一行标题）
-        for i in range(1, separator_index):
+        for i in range(1, separator_indices[0]):
             line = lines[i].strip()
             if line and not line.startswith("#"):
                 values = [float(val.strip()) for val in line.split(',') if val.strip()]
@@ -37,22 +37,39 @@ def load_data(filename):
                     joint_angles.append(values[:6])  # 只取前6个值（关节角度）
         
         # 提取位置数据（跳过位置标题行）
-        for i in range(separator_index + 2, len(lines)):
+        for i in range(separator_indices[0] + 2, separator_indices[1] if len(separator_indices) > 1 else len(lines)):
             line = lines[i].strip()
             if line and not line.startswith("#"):
                 values = [float(val.strip()) for val in line.split(',') if val.strip()]
                 if len(values) >= 3:  # 确保至少有3个值
                     measured_positions.append(values[:3])  # 只取前3个值（x,y,z坐标）
+        
+        # 提取姿态四元数数据（如果存在）
+        if len(separator_indices) > 1:
+            for i in range(separator_indices[1] + 2, len(lines)):
+                line = lines[i].strip()
+                if line and not line.startswith("#"):
+                    values = [float(val.strip()) for val in line.split(',') if val.strip()]
+                    if len(values) >= 4:  # 确保至少有4个值
+                        measured_quaternions.append(values[:4])  # 只取前4个值（qx,qy,qz,qw）
     
     # 检查是否有相同数量的关节角度和位置数据
     if len(joint_angles) != len(measured_positions):
         print(f"警告: 关节角度数量({len(joint_angles)})与位置数据数量({len(measured_positions)})不匹配")
-
-    print(f"加载的角度为：", joint_angles)
-    print("-------------------------------")
-    print(f"加载的位置为：", measured_positions)
     
-    return np.array(joint_angles), np.array(measured_positions)
+    # 检查是否有姿态四元数数据
+    if len(measured_quaternions) > 0 and len(joint_angles) != len(measured_quaternions):
+        print(f"警告: 关节角度数量({len(joint_angles)})与姿态四元数数量({len(measured_quaternions)})不匹配")
+
+    print(f"加载了{len(joint_angles)}组关节角度数据")
+    print(f"加载了{len(measured_positions)}组位置数据")
+    print(f"加载了{len(measured_quaternions)}组姿态四元数数据")
+    
+    # 如果有姿态四元数数据，则一并返回
+    if measured_quaternions:
+        return np.array(joint_angles), np.array(measured_positions), np.array(measured_quaternions)
+    else:
+        return np.array(joint_angles), np.array(measured_positions)
 
 def save_formatted_dh_params(filename, params, initial_params=None):
     """将优化后的DH参数保存为易读的格式"""
@@ -135,5 +152,5 @@ def _add_error_summary(file, initial_errors, optimized_errors):
     file.write(f"平均初始误差: {np.mean(initial_errors):.6f} mm\n")
     file.write(f"平均优化后误差: {np.mean(optimized_errors):.6f} mm\n")
     file.write(f"最大初始误差: {np.max(initial_errors):.6f} mm\n")
-    file.write(f"最大优化后误差: {np.max(optimized_errors):.6f} mm\n")
+    file.write(f"最大优化后误差: {np.max(optimized_errors):.6f} mm\n")  # 修复了这里的双冒号
     file.write(f"平均误差改进: {(1 - np.mean(optimized_errors) / np.mean(initial_errors)) * 100:.2f}%\n")

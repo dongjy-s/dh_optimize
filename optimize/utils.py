@@ -28,41 +28,45 @@ def calculate_param_changes(initial_params, final_params):
 
 
 def setup_bounds(initial_params):
-    """为 DH 参数设置优化边界，限制角度变化不超过1度，长度变化不超过1mm"""
+    """为 DH 参数设置优化边界"""
     bounds = []
+    
+    # 扩大theta_offset和alpha参数（角度参数）的变化范围，因为它们对姿态影响更大
+    angle_range = 5.0  # 大幅增加角度变化范围
+    length_range = 2.0  # 位置参数变化范围
     
     # 遍历每个连杆的参数
     for i in range(len(initial_params) // 4):
         # 每个连杆有4个参数: theta_offset, d, alpha, a
         idx = i * 4
         
-        # 1. theta_offset (角度偏移) - 限制变化±1度
+        # 1. theta_offset (角度偏移) - 姿态优化需要更大范围
         param = initial_params[idx]
         if abs(param) < 1e-6:  # 对接近0的值特殊处理
-            bounds.append((-1.0, 1.0))
+            bounds.append((-angle_range, angle_range))
         else:
-            bounds.append((param - 1.0, param + 1.0))
+            bounds.append((param - angle_range, param + angle_range))
         
-        # 2. d (连杆偏移) - 限制变化±1mm，对0值特殊处理
+        # 2. d (连杆偏移)
         param = initial_params[idx + 1]
-        if abs(param) < 1e-6:  # 如果d值接近0，严格限制其变化范围
-            bounds.append((-1.0, 1.0))  # 绝对变化不超过1mm
+        if abs(param) < 1e-6:
+            bounds.append((-length_range, length_range))
         else:
-            bounds.append((param - 1.0, param + 1.0))
+            bounds.append((param - length_range, param + length_range))
         
-        # 3. alpha (扭转角) - 限制变化±1度
+        # 3. alpha (扭转角) - 增大范围以优化姿态
         param = initial_params[idx + 2]
-        if abs(param) < 1e-6:  # 对接近0的值特殊处理
-            bounds.append((-1.0, 1.0))
+        if abs(param) < 1e-6:
+            bounds.append((-angle_range, angle_range))
         else:
-            bounds.append((param - 1.0, param + 1.0))
+            bounds.append((param - angle_range, param + angle_range))
         
-        # 4. a (连杆长度) - 限制变化±1mm
+        # 4. a (连杆长度)
         param = initial_params[idx + 3]
-        if abs(param) < 1e-6:  # 对接近0的值特殊处理
-            bounds.append((-1.0, 1.0))
+        if abs(param) < 1e-6:
+            bounds.append((-length_range, length_range))
         else:
-            bounds.append((param - 1.0, param + 1.0))
+            bounds.append((param - length_range, param + length_range))
     
     # 打印边界设置以便调试
     print("\n参数优化边界:")
