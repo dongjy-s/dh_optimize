@@ -9,38 +9,31 @@ from optimize.kinematics import error_function
 from optimize.optimization import differential_evolution, optimize_with_lm
 from optimize.validation import validate_optimization
 
-# 导入优化边界配置
-try:
-    from bounds_config import (
-        PARAM_RANGES, INITIAL_SCALE, MIN_SCALE, 
-        ADJUSTMENT_RATE, DE_CONFIG, BOUNDARY_ADJUSTMENT_INTERVALS
-    )
-    print("已加载自定义参数边界配置")
-except ImportError:
-    # 使用默认配置
-    print("使用默认参数边界配置")
-    PARAM_RANGES = {
-        # 连杆索引: [theta_range, d_range, alpha_range, a_range]
-        # 注意: 参数范围为0.0表示该参数固定不变，大于0表示可以在范围内优化
-        1: [1.0, 1.0, 1.0, 1.0],  # 基座旋转 
-        2: [1.0, 1.0, 1.0, 1.0],  # 肩部关节 
-        3: [1.0, 1.0, 1.0, 1.0],  # 上臂 
-        4: [1.0, 1.0, 1.0, 1.0],  # 肘部关节 
-        5: [1.0, 1.0, 1.0, 1.0],  # 腕部关节 
-        6: [1.0, 1.0, 1.0, 1.0],  # 末端关节 
+
+ # 使用默认配置
+print("使用默认参数边界配置")
+PARAM_RANGES = {
+    # 连杆索引: [theta_range, d_range, alpha_range, a_range]
+    # 注意: 参数范围为0.0表示该参数固定不变，大于0表示可以在范围内优化
+    1: [1.0, 1.0, 1.0, 1.0],  # 基座旋转 
+    2: [1.0, 1.0, 1.0, 1.0],  # 肩部关节 
+    3: [1.0, 1.0, 1.0, 1.0],  # 上臂 
+    4: [1.0, 1.0, 1.0, 1.0],  # 肘部关节 
+    5: [1.0, 1.0, 1.0, 1.0],  # 腕部关节 
+    6: [1.0, 1.0, 1.0, 1.0],  # 末端关节 
+}
+INITIAL_SCALE = 1.0
+MIN_SCALE = 0.1
+ADJUSTMENT_RATE = 0.8
+BOUNDARY_ADJUSTMENT_INTERVALS = 20
+DE_CONFIG = {
+    'with_quaternions': {
+        'popsize': 50, 'maxiter': 120, 'F': 0.5, 'CR': 0.7,
+    },
+    'position_only': {
+        'popsize': 30, 'maxiter': 100, 'F': 0.5, 'CR': 0.9,
     }
-    INITIAL_SCALE = 1.0
-    MIN_SCALE = 0.1
-    ADJUSTMENT_RATE = 0.8
-    BOUNDARY_ADJUSTMENT_INTERVALS = 20
-    DE_CONFIG = {
-        'with_quaternions': {
-            'popsize': 50, 'maxiter': 120, 'F': 0.5, 'CR': 0.7,
-        },
-        'position_only': {
-            'popsize': 30, 'maxiter': 100, 'F': 0.5, 'CR': 0.9,
-        }
-    }
+}
 
 def setup_adaptive_bounds(initial_params, scale_factor=1.0, param_ranges=None):
     """
@@ -255,7 +248,44 @@ def main():
     """
     # ====================== 可调参数配置 ======================
     # 数据文件配置
-    data_file = 'dat_local.txt' if os.path.exists('dat_local.txt') else 'data.txt'
+    # 检查可用的数据文件并提供选择
+    available_files = []
+    default_files = ['data.txt', 'dat_local.txt']
+    
+    # 检查默认文件是否存在
+    for file in default_files:
+        if os.path.exists(file):
+            available_files.append(file)
+    
+    # 检查当前目录下的所有txt文件
+    for file in os.listdir('.'):
+        if file.endswith('.txt') and file not in available_files and file != 'optimized_dh_params.txt':
+            available_files.append(file)
+    
+    if not available_files:
+        print("错误: 未找到任何数据文件")
+        return None, None
+    
+    # 用户选择数据文件
+    if len(available_files) == 1:
+        data_file = available_files[0]
+        print(f"找到唯一数据文件: {data_file}")
+    else:
+        print("\n可用的数据文件:")
+        for i, file in enumerate(available_files):
+            print(f"{i+1}. {file}")
+        
+        try:
+            choice = int(input("\n请选择要使用的数据文件 (输入序号): "))
+            if 1 <= choice <= len(available_files):
+                data_file = available_files[choice-1]
+            else:
+                print(f"无效选择，使用默认文件: {available_files[0]}")
+                data_file = available_files[0]
+        except ValueError:
+            print(f"无效输入，使用默认文件: {available_files[0]}")
+            data_file = available_files[0]
+    
     result_dir = 'result'
     result_file = f'{result_dir}/optimized_dh_params.txt'
     
