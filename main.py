@@ -35,7 +35,7 @@ def main():
         tuple: (优化后的DH参数, 最终RMSE误差) 或 (None, None)（如果发生错误）
     """
     # ====================== 数据文件配置 ======================
-    data_file = 'data.txt'  # 数据文件路径
+    data_file = 'data/data.txt'  # 数据文件路径
     result_dir = 'result'
     result_file = f'{result_dir}/optimized_dh_params.txt'
     

@@ -16,17 +16,19 @@ def quaternion_angular_error(q1, q2):
     q1 = normalize_quaternion(q1)
     q2 = normalize_quaternion(q2)
     
-    # 计算四元数的点积，考虑四元数的双覆盖性（q 和 -q 表示相同的旋转）
-    dot_product = np.abs(np.sum(q1 * q2))
+    # 四元数表示旋转时，q和-q表示相同的旋转，所以需要选择较小的角度
+    # 比较q1和q2与q1和-q2之间的角度，取较小值
+    dot_product1 = np.sum(q1 * q2)
+    dot_product2 = np.sum(q1 * (-q2))
     
-    # 限制点积在 [-1, 1] 范围内，避免数值误差
+    # 选择绝对值较大的点积（角度较小）
+    dot_product = max(np.abs(dot_product1), np.abs(dot_product2))
+    
+    # 确保点积在[-1, 1]范围内
     dot_product = np.clip(dot_product, -1.0, 1.0)
     
-    # 计算两个四元数之间的夹角，即旋转角度的一半
-    half_angle = np.arccos(dot_product)
-    
-    # 计算完整的旋转角度（弧度）
-    angle = 2.0 * half_angle
+    # 计算角度误差
+    angle = 2.0 * np.arccos(dot_product)
     
     return angle
 
@@ -92,6 +94,19 @@ def validate_optimization(joint_angles, measured_positions, initial_params, opti
         print(f"初始参数 - 平均角度误差: {np.mean(initial_ang_errors):.4f}°, 最大角度误差: {np.max(initial_ang_errors):.4f}°")
         print(f"优化后参数 - 平均角度误差: {np.mean(optimized_ang_errors):.4f}°, 最大角度误差: {np.max(optimized_ang_errors):.4f}°")
         print(f"姿态误差改进: {(1 - np.mean(optimized_ang_errors)/np.mean(initial_ang_errors))*100:.2f}%")
+        
+        # 添加详细的角度误差输出
+        print("\n每个样本点的角度误差明细(度):")
+        print("样本索引  初始误差  优化后误差  改进率(%)")
+        print("-" * 40)
+        for i in range(len(initial_ang_errors)):
+            improvement = (1 - optimized_ang_errors[i]/initial_ang_errors[i]) * 100 if initial_ang_errors[i] > 0 else 0
+            print(f"{i:^8}  {initial_ang_errors[i]:^8.2f}  {optimized_ang_errors[i]:^10.2f}  {improvement:^10.2f}")
+            
+        # 检查是否存在约90度的系统性偏差
+        near_90_deg_errors = [err for err in initial_ang_errors if 85 <= err <= 95]
+        if len(near_90_deg_errors) > len(initial_ang_errors) * 0.5:
+            print("\n警告: 大部分误差接近90度，可能存在坐标系定义不一致或工具变换问题")
     
     # 保存误差数据
     save_error_comparison('result/error_comparison.txt', initial_pos_errors, optimized_pos_errors)
