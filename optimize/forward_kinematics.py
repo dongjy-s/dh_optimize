@@ -179,7 +179,7 @@ if __name__ == "__main__":
     robot = RokaeRobot()
     
     # 设置关节角度
-    q_deg = [42.91441824 , -0.414388123 , 49.04196013 , -119.3252973 , 78.65535552 , -5.225972875]  # [q1, q2, q3, q4, q5, q6]  
+    q_deg = [0 , 0 , 0 , 0 , 0 , 0]  # [q1, q2, q3, q4, q5, q6]  
     
     # 计算正运动学并打印详细过程
     result = robot.forward_kinematics(q_deg, verbose=True, use_tool=True)
